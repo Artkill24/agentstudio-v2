@@ -178,7 +178,7 @@ export default function Dashboard() {
                   <MessageCircle className="h-6 w-6 text-purple-400" />
                   <h3 className="text-white font-medium">Client Agent</h3>
                 </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor('active')}`}>
+                <span className="px-2 py-1 rounded-full text-xs font-medium text-green-400 bg-green-400/20">
                   Attivo
                 </span>
               </div>
@@ -200,12 +200,12 @@ export default function Dashboard() {
                   <FileText className="h-6 w-6 text-blue-400" />
                   <h3 className="text-white font-medium">Document Agent</h3>
                 </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(dashboardData?.agentStatus?.documentAgent?.status)}`}>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(dashboardData?.agentStatus?.documentAgent?.status || 'idle')}`}>
                   {dashboardData?.agentStatus?.documentAgent?.status === 'active' ? 'Attivo' : 'Inattivo'}
                 </span>
               </div>
               <p className="text-gray-400 text-sm mb-4">
-                {dashboardData?.agentStatus?.documentAgent?.usage}
+                {dashboardData?.agentStatus?.documentAgent?.usage || 'Genera documenti AI'}
               </p>
               <button
                 onClick={() => setActiveModal('document')}
@@ -222,12 +222,12 @@ export default function Dashboard() {
                   <Search className="h-6 w-6 text-green-400" />
                   <h3 className="text-white font-medium">Research Agent</h3>
                 </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(dashboardData?.agentStatus?.researchAgent?.status)}`}>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(dashboardData?.agentStatus?.researchAgent?.status || 'idle')}`}>
                   {dashboardData?.agentStatus?.researchAgent?.status === 'active' ? 'Attivo' : 'Inattivo'}
                 </span>
               </div>
               <p className="text-gray-400 text-sm mb-4">
-                {dashboardData?.agentStatus?.researchAgent?.usage}
+                {dashboardData?.agentStatus?.researchAgent?.usage || 'Ricerca giurisprudenza'}
               </p>
               <button
                 onClick={() => setActiveModal('research')}
