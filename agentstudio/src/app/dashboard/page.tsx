@@ -32,55 +32,55 @@ export default function Dashboard() {
   const [usageStats, setUsageStats] = useState<any>(null)
 
   useEffect(() => {
-  const initDashboard = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/auth')
-      return
+    const initDashboard = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/auth')
+        return
+      }
+
+      setUser(user)
+
+      // Get profile
+      const { data: profileData } = await supabase
+        .from('studio_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!profileData) {
+        router.push('/setup')
+        return
+      }
+
+      setProfile(profileData)
+
+      // Get session ONCE
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      // Get dashboard stats
+      const response = await fetch('/api/dashboard', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      })
+      const data = await response.json()
+      setDashboardData(data)
+
+      // Get subscription info using the SAME session
+      const subscriptionResponse = await fetch('/api/subscription', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      })
+      const subData = await subscriptionResponse.json()
+      setSubscriptionData(subData)
+
+      setLoading(false)
     }
 
-    setUser(user)
-
-    // Get profile
-    const { data: profileData } = await supabase
-      .from('studio_profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!profileData) {
-      router.push('/setup')
-      return
-    }
-
-    setProfile(profileData)
-
-    // Get session ONCE
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    // Get dashboard stats
-    const response = await fetch('/api/dashboard', {
-      headers: {
-        'Authorization': `Bearer ${session?.access_token}`
-      }
-    })
-    const data = await response.json()
-    setDashboardData(data)
-
-    // Get subscription info using the SAME session
-    const subscriptionResponse = await fetch('/api/subscription', {
-      headers: {
-        'Authorization': `Bearer ${session?.access_token}`
-      }
-    })
-    const subData = await subscriptionResponse.json()
-    setSubscriptionData(subData)
-
-    setLoading(false)
-  }
-
-  initDashboard()
-}, [router])
+    initDashboard()
+  }, [router])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -139,7 +139,6 @@ export default function Dashboard() {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Stats Overview */}
-        <main className="max-w-7xl mx-auto px-6 py-8"></main>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
             <div className="flex items-center justify-between">
@@ -182,26 +181,27 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Subscription Section */}
         {subscriptionData && (
-    <div className="mb-8">
-      <h2 className="text-xl font-semibold text-white mb-4">Il Tuo Abbonamento</h2>
-      <SubscriptionCard 
-        subscription={subscriptionData} 
-        usage={{
-          usage: { 
-            documents: dashboardData?.stats?.documentsGenerated || 0,
-            research: dashboardData?.stats?.researchQueries || 0 
-          },
-          limits: subscriptionData.limits
-        }}
-      />
-    </div>
-  )}
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-white mb-4">Il Tuo Abbonamento</h2>
+            <SubscriptionCard 
+              subscription={subscriptionData} 
+              usage={{
+                usage: { 
+                  documents: dashboardData?.stats?.documentsGenerated || 0,
+                  research: dashboardData?.stats?.researchQueries || 0 
+                },
+                limits: subscriptionData.limits
+              }}
+            />
+          </div>
+        )}
 
         {/* Agent Status */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-white mb-4">I Tuoi Agenti AI</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Client Agent */}
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
               <div className="flex items-center justify-between mb-4">
@@ -265,6 +265,28 @@ export default function Dashboard() {
                 className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
               >
                 Avvia Ricerca
+              </button>
+            </div>
+
+            {/* Team Management */}
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                  <Users className="h-6 w-6 text-orange-400" />
+                  <h3 className="text-white font-medium">Team Management</h3>
+                </div>
+                <span className="px-2 py-1 rounded-full text-xs font-medium text-orange-400 bg-orange-400/20">
+                  Professional+
+                </span>
+              </div>
+              <p className="text-gray-400 text-sm mb-4">
+                Gestisci membri del team e collaborazione
+              </p>
+              <button
+                onClick={() => router.push('/teams')}
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+              >
+                Gestisci Team
               </button>
             </div>
           </div>
