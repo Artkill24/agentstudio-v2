@@ -9,7 +9,7 @@ const supabase = createClient(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { teamId: string } }
+  context: { params: Promise<{ teamId: string }> }
 ) {
   try {
     const authHeader = request.headers.get('authorization')
@@ -30,13 +30,23 @@ export async function POST(
       return NextResponse.json({ error: 'Email e ruolo richiesti' }, { status: 400 })
     }
 
+    const { teamId } = await context.params // FIX: await params
+
     const teamService = new TeamService()
-    const invitation = await teamService.inviteTeamMember(params.teamId, email, role, user.id)
+    
+    try {
+      const invitation = await teamService.inviteTeamMember(teamId, email, role, user.id)
+      return NextResponse.json({ invitation })
+    } catch (error: any) {
+      // Handle duplicate invitation
+      if (error?.code === '23505') {
+        return NextResponse.json({ 
+          error: 'Questo utente è già stato invitato al team' 
+        }, { status: 400 })
+      }
+      throw error
+    }
 
-    // Here you would send invitation email (implement with your email service)
-    // await sendInvitationEmail(email, invitation)
-
-    return NextResponse.json({ invitation })
   } catch (error) {
     console.error('Team invite API error:', error)
     return NextResponse.json({ error: 'Errore nell\'invio dell\'invito' }, { status: 500 })
