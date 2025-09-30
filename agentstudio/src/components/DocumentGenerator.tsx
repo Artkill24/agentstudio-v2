@@ -19,6 +19,7 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
   })
   const [loading, setLoading] = useState(false)
   const [generatedDoc, setGeneratedDoc] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const documentTypes = [
     { value: 'contract', label: 'Contratto di Prestazione' },
@@ -31,6 +32,8 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
     if (!formData.type || !formData.clientName) return
 
     setLoading(true)
+    setError(null)
+    
     try {
       const { data: { session } } = await supabase.auth.getSession()
       
@@ -40,18 +43,37 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          documentType: formData.type === 'contract' ? 'contratto' : 
+                       formData.type === 'invoice' ? 'fattura' :
+                       formData.type === 'letter' ? 'lettera' :
+                       formData.type === 'privacy' ? 'privacy' : 'default',
+          details: {
+            parties: formData.clientName,
+            subject: formData.subject || formData.description,
+            duration: '12 mesi',
+            payment: formData.amount ? `€${formData.amount}` : 'Da concordare',
+            recipient: formData.clientName,
+            content: formData.description,
+            topic: formData.subject,
+            context: formData.description
+          }
+        })
       })
 
       const data = await response.json()
       
-      if (data.success) {
-        setGeneratedDoc(data.document)
+      if (response.ok && data.document) {
+        setGeneratedDoc({
+          title: `${formData.type}_${formData.clientName}`,
+          content: data.document
+        })
       } else {
-        console.error('Generation failed:', data.error)
+        setError(data.error || 'Errore nella generazione del documento')
       }
     } catch (error) {
       console.error('Error:', error)
+      setError('Errore di connessione')
     } finally {
       setLoading(false)
     }
@@ -72,7 +94,6 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <h2 className="text-xl font-semibold text-white flex items-center">
             <FileText className="h-5 w-5 mr-2" />
@@ -84,10 +105,8 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
         </div>
 
         <div className="flex h-[calc(90vh-88px)]">
-          {/* Form */}
           <div className="w-1/3 p-6 border-r border-gray-700 overflow-y-auto">
             <div className="space-y-4">
-              {/* Document Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Tipo Documento
@@ -104,7 +123,6 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
                 </select>
               </div>
 
-              {/* Client Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Nome Cliente
@@ -118,7 +136,6 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
                 />
               </div>
 
-              {/* Conditional Fields */}
               {(formData.type === 'contract' || formData.type === 'invoice') && (
                 <>
                   <div>
@@ -177,6 +194,12 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
                 </>
               )}
 
+              {error && (
+                <div className="bg-red-500/20 border border-red-500 text-red-200 px-3 py-2 rounded text-sm">
+                  {error}
+                </div>
+              )}
+
               <button
                 onClick={generateDocument}
                 disabled={loading || !formData.type || !formData.clientName}
@@ -187,7 +210,6 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
             </div>
           </div>
 
-          {/* Preview */}
           <div className="flex-1 p-6 overflow-y-auto">
             {generatedDoc ? (
               <div>
