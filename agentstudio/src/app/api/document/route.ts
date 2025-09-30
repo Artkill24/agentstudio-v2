@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { DocumentAgent } from '@/lib/documentAgent'
+import OpenAI from 'openai'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+const openrouter = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+  defaultHeaders: {
+    "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL,
+    "X-Title": "AgentStudio"
+  }
+})
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    console.log('Document generation request:', body)
-
-    // Get user from auth
     const authHeader = request.headers.get('authorization')
     if (!authHeader) {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
@@ -25,46 +30,78 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Token non valido' }, { status: 401 })
     }
 
-    // Get user profile
-    const { data: profile } = await supabase
-      .from('studio_profiles')
-      .select('*')
+    const { documentType, details } = await request.json()
+
+    if (!documentType || !details) {
+      return NextResponse.json({ error: 'Parametri mancanti' }, { status: 400 })
+    }
+
+    // Check limits (stesso codice di prima)
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select('plan_name, team_id')
       .eq('user_id', user.id)
       .single()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'Profilo non trovato' }, { status: 404 })
+    const planLimits: Record<string, number> = {
+      starter: 50, professional: -1, enterprise: -1, free: 5
     }
 
-    // Generate document
-    const agent = new DocumentAgent()
-    const document = await agent.generateDocument(body, profile)
+    const plan = subscription?.plan_name || 'free'
+    const limit = planLimits[plan]
 
-    // Save to database
-    const { error: saveError } = await supabase
+    if (limit > 0) {
+      const thirtyDaysAgo = new Date()
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+      const { count } = await supabase
+        .from('generated_documents')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .gte('created_at', thirtyDaysAgo.toISOString())
+
+      if (count && count >= limit) {
+        return NextResponse.json({ 
+          error: `Limite raggiunto (${limit} documenti/mese)` 
+        }, { status: 429 })
+      }
+    }
+
+    const prompt = buildDocumentPrompt(documentType, details)
+    
+    const completion = await openrouter.chat.completions.create({
+      model: "deepseek/deepseek-chat-v3.1:free",
+      messages: [{ role: "user", content: prompt }]
+    })
+
+    const documentText = completion.choices[0]?.message?.content || 'Errore generazione'
+
+    await supabase
       .from('generated_documents')
       .insert({
         user_id: user.id,
-        document_type: body.type,
-        title: document.title,
-        content: document.content,
-        client_name: body.clientName,
-        client_email: body.clientEmail || null,
-        amount: body.amount || null,
-        metadata: body
+        team_id: subscription?.team_id,
+        document_type: documentType,
+        content: documentText,
+        metadata: { details }
       })
 
-    if (saveError) {
-      console.error('Save error:', saveError)
-    }
+    return NextResponse.json({ document: documentText })
 
-    return NextResponse.json({ 
-      success: true,
-      document: document
-    })
-    
   } catch (error) {
-    console.error('Document generation error:', error)
-    return NextResponse.json({ error: 'Errore interno' }, { status: 500 })
+    console.error('Document error:', error)
+    return NextResponse.json({ error: 'Errore generazione' }, { status: 500 })
   }
+}
+
+function buildDocumentPrompt(type: string, details: any): string {
+  const base = `Sei un assistente legale italiano. Genera un documento professionale.`
+  
+  const prompts: Record<string, string> = {
+    contratto: `${base}\n\nContratto:\n- Parti: ${details.parties}\n- Oggetto: ${details.subject}\n- Corrispettivo: ${details.payment}\n\nIncludi: intestazione, premesse, obblighi, durata, pagamento, recesso, foro competente, GDPR, firme.`,
+    lettera: `${base}\n\nLettera formale:\n- Destinatario: ${details.recipient}\n- Oggetto: ${details.subject}\n- Contenuto: ${details.content}`,
+    default: `${base}\n\nDocumento "${type}":\n${JSON.stringify(details, null, 2)}`
+  }
+  
+  return prompts[type] || prompts.default
 }

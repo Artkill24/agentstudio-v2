@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { MessageCircle, Send, X } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 interface ChatAgentProps {
   userEmail: string
@@ -9,7 +10,6 @@ interface ChatAgentProps {
 }
 
 export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
-  // Se c'è onClose (modalità dashboard), apri subito. Se non c'è (floating), inizia chiuso
   const [isOpen, setIsOpen] = useState(!!onClose)
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Array<{role: 'user' | 'agent', content: string}>>([])
@@ -17,10 +17,8 @@ export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
 
   const handleClose = () => {
     if (onClose) {
-      // Modalità dashboard - chiama onClose della dashboard
       onClose()
     } else {
-      // Modalità floating - chiudi solo il modal
       setIsOpen(false)
     }
   }
@@ -34,16 +32,39 @@ export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
     setLoading(true)
 
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, userEmail })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ 
+          message: userMessage,
+          conversationHistory: messages
+        })
       })
 
       const data = await response.json()
-      setMessages(prev => [...prev, { role: 'agent', content: data.response }])
+      
+      if (response.ok && data.response) {
+        setMessages(prev => [...prev, { 
+          role: 'agent', 
+          content: data.response 
+        }])
+      } else {
+        setMessages(prev => [...prev, { 
+          role: 'agent', 
+          content: `Errore: ${data.error || 'Servizio non disponibile'}` 
+        }])
+      }
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'agent', content: 'Errore di connessione. Riprova.' }])
+      console.error('Chat error:', error)
+      setMessages(prev => [...prev, { 
+        role: 'agent', 
+        content: 'Errore di connessione. Riprova.' 
+      }])
     } finally {
       setLoading(false)
     }
@@ -51,7 +72,6 @@ export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
 
   return (
     <>
-      {/* Chat Button - solo se non c'è onClose (modalità floating) */}
       {!onClose && (
         <button
           onClick={() => setIsOpen(true)}
@@ -61,11 +81,9 @@ export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
         </button>
       )}
 
-      {/* Chat Modal */}
       {isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
           <div className="bg-gray-800 rounded-t-lg sm:rounded-lg w-full sm:w-96 h-96 flex flex-col">
-            {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
               <h3 className="text-white font-semibold">Client Agent</h3>
               <button onClick={handleClose}>
@@ -73,7 +91,6 @@ export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
               </button>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 && (
                 <div className="text-gray-400 text-sm">
@@ -100,7 +117,6 @@ export default function ChatAgent({ userEmail, onClose }: ChatAgentProps) {
               )}
             </div>
 
-            {/* Input */}
             <div className="p-4 border-t border-gray-700">
               <div className="flex space-x-2">
                 <input
