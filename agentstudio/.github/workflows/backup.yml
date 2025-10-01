@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: Daily Database Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Ogni giorno alle 2 AM UTC
+  workflow_dispatch: # Permetti esecuzione manuale
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js
+      
+      - name: Run backup
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run backup
+      
+      - name: Upload backup to artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: database-backup-${{ github.run_number }}
+          path: backups/
+          retention-days: 30
