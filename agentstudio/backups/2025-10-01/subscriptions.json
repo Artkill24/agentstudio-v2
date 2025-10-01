@@ -1,0 +1,47 @@
+[
+  {
+    "id": "9cc7bf5f-2094-49d5-8583-71592f0a83b8",
+    "user_id": "0520996b-704e-434f-99b9-fe22a2680364",
+    "stripe_customer_id": "cus_T7pa3ovQbYEVRP",
+    "stripe_subscription_id": "sub_1SBapZGgnEtxiTsGzdRP2wVX",
+    "stripe_price_id": "price_1SB0a5GgnEtxiTsGFJvAk5Dr",
+    "status": "trialing",
+    "plan_name": "Enterprise",
+    "trial_ends_at": "2025-10-10T12:32:57+00:00",
+    "current_period_start": null,
+    "current_period_end": null,
+    "created_at": "2025-09-26T11:34:48.737227+00:00",
+    "updated_at": "2025-09-26T12:33:01.688+00:00",
+    "team_id": null
+  },
+  {
+    "id": "19aaf40b-492c-4e6a-8aa8-233dbace41bb",
+    "user_id": "51fa2d5e-9ac6-4bcb-8527-ff633ac15530",
+    "stripe_customer_id": "cus_T7c37K0ZkLk5l9",
+    "stripe_subscription_id": "sub_1SBZXiGgnEtxiTsGvj6o6tyQ",
+    "stripe_price_id": "price_1SB0ZOGgnEtxiTsGj5dzNsp1",
+    "status": "trialing",
+    "plan_name": "Enterprise",
+    "trial_ends_at": "2025-10-10T11:10:26+00:00",
+    "current_period_start": "2025-09-26T11:10:26+00:00",
+    "current_period_end": "2025-10-10T11:10:26+00:00",
+    "created_at": "2025-09-25T21:35:30.715171+00:00",
+    "updated_at": "2025-09-26T11:10:31.013+00:00",
+    "team_id": "19aaf40b-492c-4e6a-8aa8-233dbace41bb"
+  },
+  {
+    "id": "49fe7c61-3e73-4657-b4bf-10c159c69cf1",
+    "user_id": "603716a7-5738-4bed-bc39-833961f9addc",
+    "stripe_customer_id": "cus_T7d6KQ8Oogflj7",
+    "stripe_subscription_id": "sub_1SBgbrGgnEtxiTsGitWplzMD",
+    "stripe_price_id": "price_1SB0a5GgnEtxiTsGFJvAk5Dr",
+    "status": "trialing",
+    "plan_name": "enterprise",
+    "trial_ends_at": "2025-10-10T18:43:11+00:00",
+    "current_period_start": "2025-09-26T18:43:11+00:00",
+    "current_period_end": "2025-10-10T18:43:11+00:00",
+    "created_at": "2025-09-25T22:40:27.041306+00:00",
+    "updated_at": "2025-09-26T19:44:13.361+00:00",
+    "team_id": "7f6979e6-ae0c-4ef8-873d-ce573765e8cf"
+  }
+]

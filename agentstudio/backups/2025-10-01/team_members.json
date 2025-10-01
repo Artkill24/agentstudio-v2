@@ -1,0 +1,15 @@
+[
+  {
+    "id": "9e044065-d5c4-44ca-affa-be0fb2ebb3aa",
+    "team_id": "7f6979e6-ae0c-4ef8-873d-ce573765e8cf",
+    "user_id": "603716a7-5738-4bed-bc39-833961f9addc",
+    "role": "owner",
+    "permissions": {
+      "chat": true,
+      "research": true,
+      "documents": true,
+      "team_management": true
+    },
+    "joined_at": "2025-09-27T11:35:10.194199+00:00"
+  }
+]

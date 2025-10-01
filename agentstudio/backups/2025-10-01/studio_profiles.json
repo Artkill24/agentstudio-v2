@@ -1,0 +1,60 @@
+[
+  {
+    "id": "b918b121-d610-480b-8ce1-c336055c8e32",
+    "user_id": "603716a7-5738-4bed-bc39-833961f9addc",
+    "studio_name": "marconi",
+    "studio_type": "Studio Ingegneria",
+    "location": "tortona",
+    "team_size": "Solo",
+    "practice_areas": [
+      "Progettazione",
+      "Consulenza Strategica"
+    ],
+    "current_challenges": "io prova",
+    "monthly_clients": null,
+    "phone": null,
+    "website": null,
+    "completed_at": "2025-09-24T12:05:45.748451+00:00",
+    "created_at": "2025-09-24T12:05:45.748451+00:00",
+    "updated_at": "2025-09-24T12:05:45.748451+00:00"
+  },
+  {
+    "id": "8348d0d0-476e-480d-bf0e-0d50b6220e46",
+    "user_id": "51fa2d5e-9ac6-4bcb-8527-ff633ac15530",
+    "studio_name": "salvini1",
+    "studio_type": "Studio Legale",
+    "location": "milano",
+    "team_size": "Solo",
+    "practice_areas": [
+      "Diritto Civile"
+    ],
+    "current_challenges": "io prova 2",
+    "monthly_clients": null,
+    "phone": null,
+    "website": null,
+    "completed_at": "2025-09-25T13:54:14.644643+00:00",
+    "created_at": "2025-09-25T13:54:14.644643+00:00",
+    "updated_at": "2025-09-25T13:54:14.644643+00:00"
+  },
+  {
+    "id": "0da1b64c-f5ba-4620-922b-5fd298bbd066",
+    "user_id": "0520996b-704e-434f-99b9-fe22a2680364",
+    "studio_name": "lucarrelli",
+    "studio_type": "Studio Commercialista",
+    "location": "torino",
+    "team_size": "2-5",
+    "practice_areas": [
+      "Immobiliare",
+      "Consulenza Strategica",
+      "Fiscale e Tributario",
+      "Progettazione"
+    ],
+    "current_challenges": "prova test",
+    "monthly_clients": null,
+    "phone": null,
+    "website": null,
+    "completed_at": "2025-09-26T11:34:09.243121+00:00",
+    "created_at": "2025-09-26T11:34:09.243121+00:00",
+    "updated_at": "2025-09-26T11:34:09.243121+00:00"
+  }
+]

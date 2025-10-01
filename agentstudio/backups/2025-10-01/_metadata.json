@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-10-01T14:36:27.800Z",
+  "tables": [
+    "studio_profiles",
+    "subscriptions",
+    "teams",
+    "team_members",
+    "team_invitations",
+    "generated_documents",
+    "research_history"
+  ],
+  "environment": "development"
+}

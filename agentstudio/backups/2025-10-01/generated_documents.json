@@ -1,0 +1,22 @@
+[
+  {
+    "id": "a9240c62-c830-4cd5-baab-e3ccfef54eb9",
+    "user_id": "603716a7-5738-4bed-bc39-833961f9addc",
+    "document_type": "contract",
+    "title": "Contratto di Prestazione - saad kaicar",
+    "content": "CONTRATTO DI PRESTAZIONE PROFESSIONALE\n\n**Premessa**\n\nTra lo Studio di Ingegneria Marconi, con sede legale in Tortona (AL) [inserire indirizzo completo e codice fiscale], in seguito denominato “Marconi”, rappresentato dal legale rappresentante [inserire nome e cognome del legale rappresentante], e il Sig. Saad Kaicar, con residenza in [inserire indirizzo completo e codice fiscale del cliente], in seguito denominato “Cliente”, si conviene quanto segue:\n\n**Oggetto del Contratto**\n\nMarconi si obbliga a fornire al Cliente un servizio di [descrivere dettagliatamente il servizio offerto, ad esempio: “progettazione di un impianto elettrico per abitazione unifamiliare sita in [indirizzo]; consulenza strategica per l'ottimizzazione dei processi produttivi dell'azienda del Cliente sita in [indirizzo];  ecc.”].  Il servizio comprenderà le seguenti fasi: [elencare dettagliatamente le fasi del servizio, specificando tempi e modalità di svolgimento].\n\n**Obblighi delle Parti**\n\n**Obblighi di Marconi:** Marconi si impegna a svolgere il servizio con la massima diligenza e professionalità,  secondo le regole dell'arte e le migliori prassi ingegneristiche,  fornendo al Cliente tutta la documentazione necessaria e rispondendo alle sue richieste di chiarimento.\n\n**Obblighi del Cliente:** Il Cliente si impegna a fornire a Marconi tutta la documentazione e le informazioni necessarie per la corretta esecuzione del servizio, nel rispetto dei tempi concordati.  Il Cliente si impegna inoltre a collaborare attivamente con Marconi durante lo svolgimento del servizio.\n\n\n**Corrispettivo e Modalità di Pagamento**\n\nPer la prestazione professionale sopra descritta, il Cliente corrisponderà a Marconi la somma di Euro 1.200,00 (milleduecento/00), IVA [indicare aliquota IVA applicabile] esclusa.  Il pagamento avverrà come segue: [specificare modalità di pagamento, ad esempio: \"50% all'accettazione del presente contratto tramite bonifico bancario alle coordinate bancarie di Marconi indicate in allegato; 50% alla consegna del servizio completo e definitiva approvazione da parte del Cliente\"].\n\n\n**Clausole Privacy (GDPR)**\n\nAi sensi del Regolamento UE 2016/679 (GDPR), Marconi informa il Cliente che i dati personali raccolti nell'ambito del presente contratto saranno trattati esclusivamente per le finalità strettamente connesse all'esecuzione del servizio e saranno conservati per il tempo necessario all'adempimento di obblighi di legge.  Il Cliente potrà esercitare i propri diritti, di cui all'art. 7 del GDPR, contattando Marconi all'indirizzo [inserire indirizzo e-mail o recapito telefonico].  Il Titolare del trattamento dei dati è Marconi.\n\n\n**Foro Competente**\n\nPer qualsiasi controversia derivante dal presente contratto, si conviene la competenza esclusiva del Foro di Alessandria.\n\n\n**Data e Firme**\n\n\nIn Tortona, li _____________\n\n\n_________________________\n(Studio Ingegneria Marconi)\n\n\n_________________________\n(Saad Kaicar)\n",
+    "client_name": "saad kaicar",
+    "client_email": null,
+    "amount": 1200,
+    "metadata": {
+      "type": "contract",
+      "amount": "1200",
+      "subject": "",
+      "clientName": "saad kaicar",
+      "clientEmail": "",
+      "description": "servizio"
+    },
+    "created_at": "2025-09-24T15:51:54.926254+00:00",
+    "team_id": null
+  }
+]

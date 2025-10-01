@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Crown, Calendar, TrendingUp, Settings } from 'lucide-react'
+import { Crown, Calendar, TrendingUp, Settings, ExternalLink } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 interface SubscriptionCardProps {
   subscription: any
@@ -10,6 +11,33 @@ interface SubscriptionCardProps {
 
 export default function SubscriptionCard({ subscription, usage }: SubscriptionCardProps) {
   const [loading, setLoading] = useState(false)
+
+  const manageSubscription = async () => {
+    setLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      const response = await fetch('/api/create-portal-session', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.url) {
+        window.location.href = data.url
+      } else {
+        alert(data.error || 'Errore apertura portale')
+      }
+    } catch (error) {
+      console.error('Error:', error)
+      alert('Errore di connessione')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const getPlanIcon = (plan: string) => {
     switch (plan) {
@@ -37,7 +65,7 @@ export default function SubscriptionCard({ subscription, usage }: SubscriptionCa
   }
 
   const getUsagePercentage = (used: number, limit: number) => {
-    if (limit === -1) return 0 // Unlimited
+    if (limit === -1) return 0
     return Math.min((used / limit) * 100, 100)
   }
 
@@ -63,10 +91,18 @@ export default function SubscriptionCard({ subscription, usage }: SubscriptionCa
         </div>
         
         <button
-          onClick={() => window.location.href = '/pricing'}
-          className="text-xs px-3 py-1 rounded-full border border-current hover:bg-white/10 transition-colors"
+          onClick={manageSubscription}
+          disabled={loading}
+          className="flex items-center space-x-2 text-xs px-3 py-1 rounded-full border border-current hover:bg-white/10 transition-colors disabled:opacity-50"
         >
-          Gestisci
+          {loading ? (
+            <span>Caricamento...</span>
+          ) : (
+            <>
+              <span>Gestisci</span>
+              <ExternalLink className="h-3 w-3" />
+            </>
+          )}
         </button>
       </div>
 
