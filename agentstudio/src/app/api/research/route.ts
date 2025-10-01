@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
+import { limitsEnforcer } from '@/lib/limitsEnforcer'
+import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
+import { querySchema, ValidationError } from '@/lib/validation'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,6 +21,7 @@ const openrouter = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
+    // Authentication
     const authHeader = request.headers.get('authorization')
     if (!authHeader) {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
@@ -30,45 +34,55 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Token non valido' }, { status: 401 })
     }
 
+    // Rate limiting
+    const rateLimit = await rateLimiter.check(
+      `research:${user.id}`,
+      RATE_LIMITS.research.maxRequests,
+      RATE_LIMITS.research.windowMs
+    )
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { 
+          error: `Troppe ricerche. Riprova tra ${Math.ceil(rateLimit.resetIn / 60000)} minuti.`,
+          resetIn: rateLimit.resetIn
+        },
+        { status: 429 }
+      )
+    }
+
+    // Parse and validate input
     const { query } = await request.json()
 
-    if (!query) {
-      return NextResponse.json({ error: 'Query mancante' }, { status: 400 })
+    // Validation with Zod schema
+    try {
+      querySchema.parse(query)
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        return NextResponse.json({ 
+          error: 'Query non valida',
+          details: error.message 
+        }, { status: 400 })
+      }
+      return NextResponse.json({ error: 'Query non valida' }, { status: 400 })
     }
 
-    // Check usage limits
+    // Check usage limits with limitsEnforcer
+    const limitCheck = await limitsEnforcer.checkResearchLimit(user.id)
+
+    if (!limitCheck.allowed) {
+      return NextResponse.json({ 
+        error: limitCheck.error,
+        remaining: 0 
+      }, { status: 429 })
+    }
+
+    // Get subscription info for team_id
     const { data: subscription } = await supabase
       .from('subscriptions')
-      .select('plan_name, team_id')
+      .select('team_id')
       .eq('user_id', user.id)
       .single()
-
-    const planLimits: Record<string, number> = {
-      starter: 20,
-      professional: -1,
-      enterprise: -1,
-      free: 3
-    }
-
-    const plan = subscription?.plan_name || 'free'
-    const limit = planLimits[plan]
-
-    if (limit > 0) {
-      const thirtyDaysAgo = new Date()
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
-      const { count } = await supabase
-        .from('research_history')
-        .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
-        .gte('created_at', thirtyDaysAgo.toISOString())
-
-      if (count && count >= limit) {
-        return NextResponse.json({ 
-          error: `Limite mensile raggiunto (${limit} ricerche). Effettua l'upgrade.` 
-        }, { status: 429 })
-      }
-    }
 
     // Generate research with DeepSeek
     const prompt = `Sei un assistente di ricerca per studi professionali italiani (avvocati, commercialisti, consulenti).
@@ -92,31 +106,73 @@ Fornisci una risposta completa, accurata e professionale in italiano.`
           role: "user",
           content: prompt
         }
-      ]
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
     })
 
-    const synthesis = completion.choices[0]?.message?.content || 'Errore nella ricerca'
+    const synthesis = completion.choices[0]?.message?.content
+
+    if (!synthesis) {
+      throw new Error('Nessuna risposta generata dal modello')
+    }
 
     // Save to database
-    await supabase
+    const { error: insertError } = await supabase
       .from('research_history')
       .insert({
         user_id: user.id,
-        team_id: subscription?.team_id,
-        query: query,
+        team_id: subscription?.team_id || null,
+        query: query.trim(),
         results: { synthesis },
-        metadata: { timestamp: new Date().toISOString() }
+        metadata: { 
+          timestamp: new Date().toISOString(),
+          model: "deepseek/deepseek-chat-v3.1:free"
+        }
       })
+
+    if (insertError) {
+      console.error('Error saving research history:', insertError)
+      // Don't fail the request if we can't save history
+    }
 
     return NextResponse.json({ 
       results: synthesis,
-      sources: []
+      sources: [],
+      remaining: limitCheck.remaining
     })
 
   } catch (error) {
     console.error('Research error:', error)
+
+    // Handle OpenRouter specific errors
+    if (error instanceof OpenAI.APIError) {
+      console.error('OpenRouter API error:', {
+        status: error.status,
+        message: error.message,
+        type: error.type
+      })
+
+      if (error.status === 429) {
+        return NextResponse.json({ 
+          error: 'Troppo richieste al servizio AI. Riprova tra qualche secondo.' 
+        }, { status: 429 })
+      }
+
+      if (error.status === 401 || error.status === 403) {
+        return NextResponse.json({ 
+          error: 'Errore di autenticazione con il servizio AI' 
+        }, { status: 503 })
+      }
+
+      return NextResponse.json({ 
+        error: 'Servizio AI temporaneamente non disponibile' 
+      }, { status: 503 })
+    }
+
+    // Generic error
     return NextResponse.json({ 
-      error: 'Errore nella ricerca' 
+      error: 'Errore ricerca' 
     }, { status: 500 })
   }
 }
