@@ -615,7 +615,15 @@ export async function POST(request: NextRequest) {
             model: completion.model
           }
         })
-        .catch(err => console.error('Failed to log metrics:', err))
+        try {
+          await supabase
+            .from('usage_metrics')
+            .insert({
+              // ... i tuoi dati
+            })
+        } catch (err) {
+          console.error('Failed to log metrics:', err)
+        }
 
       // ========== SUCCESS RESPONSE ==========
       return NextResponse.json({
@@ -651,7 +659,7 @@ export async function POST(request: NextRequest) {
         })
         
         return NextResponse.json(
-          { error: error.message, field: error.field },
+          { error: error.message },
           { status: 400 }
         )
       }
