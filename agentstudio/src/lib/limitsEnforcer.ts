@@ -11,6 +11,15 @@ interface UsageLimits {
   chat: number // -1 = illimitato
 }
 
+interface LimitCheckResult {
+  allowed: boolean
+  remaining: number
+  resetAt: number
+  limit?: number
+  planName?: string
+  error?: string
+}
+
 const PLAN_LIMITS: Record<string, UsageLimits> = {
   free: { documents: 5, research: 3, chat: 50 },
   starter: { documents: 50, research: 20, chat: 500 },
@@ -19,11 +28,18 @@ const PLAN_LIMITS: Record<string, UsageLimits> = {
 }
 
 export class LimitsEnforcer {
-  async checkDocumentLimit(userId: string): Promise<{ allowed: boolean, remaining: number, error?: string }> {
+  async checkDocumentLimit(userId: string): Promise<LimitCheckResult> {
     const { plan, limit } = await this.getPlanLimit(userId, 'documents')
+    const resetAt = this.getNextMonthReset()
     
     if (limit === -1) {
-      return { allowed: true, remaining: -1 }
+      return { 
+        allowed: true, 
+        remaining: -1, 
+        resetAt, 
+        limit, 
+        planName: plan 
+      }
     }
 
     const used = await this.getMonthlyUsage(userId, 'generated_documents')
@@ -33,23 +49,38 @@ export class LimitsEnforcer {
       return {
         allowed: false,
         remaining: 0,
+        resetAt,
+        limit,
+        planName: plan,
         error: `Limite documenti raggiunto (${limit}/mese). Upgrade al piano Professional per documenti illimitati.`
       }
     }
 
-    // Soft warning at 80%
     if (used >= limit * 0.8) {
       console.warn(`User ${userId} at ${Math.round(used/limit * 100)}% document usage`)
     }
 
-    return { allowed: true, remaining }
+    return { 
+      allowed: true, 
+      remaining, 
+      resetAt, 
+      limit, 
+      planName: plan 
+    }
   }
 
-  async checkResearchLimit(userId: string): Promise<{ allowed: boolean, remaining: number, error?: string }> {
+  async checkResearchLimit(userId: string): Promise<LimitCheckResult> {
     const { plan, limit } = await this.getPlanLimit(userId, 'research')
+    const resetAt = this.getNextMonthReset()
     
     if (limit === -1) {
-      return { allowed: true, remaining: -1 }
+      return { 
+        allowed: true, 
+        remaining: -1, 
+        resetAt, 
+        limit, 
+        planName: plan 
+      }
     }
 
     const used = await this.getMonthlyUsage(userId, 'research_history')
@@ -59,21 +90,36 @@ export class LimitsEnforcer {
       return {
         allowed: false,
         remaining: 0,
+        resetAt,
+        limit,
+        planName: plan,
         error: `Limite ricerche raggiunto (${limit}/mese). Upgrade necessario.`
       }
     }
 
-    return { allowed: true, remaining }
+    return { 
+      allowed: true, 
+      remaining, 
+      resetAt, 
+      limit, 
+      planName: plan 
+    }
   }
 
-  async checkChatLimit(userId: string): Promise<{ allowed: boolean, remaining: number, error?: string }> {
+  async checkChatLimit(userId: string): Promise<LimitCheckResult> {
     const { plan, limit } = await this.getPlanLimit(userId, 'chat')
+    const resetAt = this.getNextMonthReset()
     
     if (limit === -1) {
-      return { allowed: true, remaining: -1 }
+      return { 
+        allowed: true, 
+        remaining: -1, 
+        resetAt, 
+        limit, 
+        planName: plan 
+      }
     }
 
-    // Chat uses simple counter in user metadata
     const { data: profile } = await supabase
       .from('studio_profiles')
       .select('metadata')
@@ -87,11 +133,20 @@ export class LimitsEnforcer {
       return {
         allowed: false,
         remaining: 0,
+        resetAt,
+        limit,
+        planName: plan,
         error: `Limite chat raggiunto (${limit}/mese). Upgrade necessario.`
       }
     }
 
-    return { allowed: true, remaining }
+    return { 
+      allowed: true, 
+      remaining, 
+      resetAt, 
+      limit, 
+      planName: plan 
+    }
   }
 
   async incrementChatCount(userId: string) {
@@ -104,7 +159,6 @@ export class LimitsEnforcer {
     const currentCount = (profile?.metadata as any)?.chat_count_this_month || 0
     const lastReset = (profile?.metadata as any)?.chat_count_last_reset
 
-    // Reset monthly counter if needed
     const now = new Date()
     const lastResetDate = lastReset ? new Date(lastReset) : null
     const shouldReset = !lastResetDate || 
@@ -123,6 +177,12 @@ export class LimitsEnforcer {
       .eq('user_id', userId)
   }
 
+  private getNextMonthReset(): number {
+    const now = new Date()
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    return nextMonth.getTime()
+  }
+
   private async getPlanLimit(userId: string, type: keyof UsageLimits): Promise<{ plan: string, limit: number }> {
     const { data: subscription } = await supabase
       .from('subscriptions')
@@ -133,12 +193,14 @@ export class LimitsEnforcer {
     const plan = subscription?.plan_name || 'free'
     const status = subscription?.status
 
-    // If subscription expired/canceled, downgrade to free
     if (status === 'canceled' || status === 'past_due') {
       return { plan: 'free', limit: PLAN_LIMITS.free[type] }
     }
 
-    return { plan, limit: PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS]?.[type] || PLAN_LIMITS.free[type] }
+    return { 
+      plan, 
+      limit: PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS]?.[type] || PLAN_LIMITS.free[type] 
+    }
   }
 
   private async getMonthlyUsage(userId: string, table: string): Promise<number> {
