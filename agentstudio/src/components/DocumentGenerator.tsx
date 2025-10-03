@@ -11,25 +11,43 @@ interface DocumentGeneratorProps {
 export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
   const [formData, setFormData] = useState({
     type: '',
+    // Campi comuni
     clientName: '',
     clientEmail: '',
     amount: '',
     description: '',
-    subject: ''
+    subject: '',
+    // Campi contratto
+    parties: '',
+    payment: '',
+    duration: '',
+    additionalClauses: '',
+    // Campi lettera
+    recipient: '',
+    content: '',
+    tone: 'formale' as 'formale' | 'informale' | 'legale',
+    // Campi privacy
+    companyName: '',
+    vatNumber: '',
+    address: '',
+    dataController: '',
+    websiteUrl: '',
+    // Campi termini
+    service: ''
   })
   const [loading, setLoading] = useState(false)
   const [generatedDoc, setGeneratedDoc] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
   const documentTypes = [
-    { value: 'contract', label: 'Contratto di Prestazione' },
-    { value: 'invoice', label: 'Fattura' },
-    { value: 'letter', label: 'Lettera Professionale' },
-    { value: 'privacy', label: 'Privacy Policy' }
+    { value: 'contratto', label: 'Contratto di Prestazione' },
+    { value: 'lettera', label: 'Lettera Formale' },
+    { value: 'privacy', label: 'Privacy Policy' },
+    { value: 'termini', label: 'Termini e Condizioni' }
   ]
 
   const generateDocument = async () => {
-    if (!formData.type || !formData.clientName) return
+    if (!formData.type) return
 
     setLoading(true)
     setError(null)
@@ -37,6 +55,44 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       
+      // Prepara i dettagli in base al tipo
+      let details: any = {}
+      
+      switch (formData.type) {
+        case 'contratto':
+          details = {
+            parties: formData.parties || formData.clientName,
+            subject: formData.subject || formData.description,
+            payment: formData.payment || (formData.amount ? `€${formData.amount}` : ''),
+            duration: formData.duration,
+            additionalClauses: formData.additionalClauses
+          }
+          break
+        case 'lettera':
+          details = {
+            recipient: formData.recipient || formData.clientName,
+            subject: formData.subject,
+            content: formData.content || formData.description,
+            tone: formData.tone
+          }
+          break
+        case 'privacy':
+          details = {
+            companyName: formData.companyName,
+            vatNumber: formData.vatNumber,
+            address: formData.address,
+            dataController: formData.dataController,
+            websiteUrl: formData.websiteUrl
+          }
+          break
+        case 'termini':
+          details = {
+            companyName: formData.companyName,
+            service: formData.service
+          }
+          break
+      }
+
       const response = await fetch('/api/document', {
         method: 'POST',
         headers: {
@@ -44,36 +100,33 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
           'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
-          documentType: formData.type === 'contract' ? 'contratto' : 
-                       formData.type === 'invoice' ? 'fattura' :
-                       formData.type === 'letter' ? 'lettera' :
-                       formData.type === 'privacy' ? 'privacy' : 'default',
-          details: {
-            parties: formData.clientName,
-            subject: formData.subject || formData.description,
-            duration: '12 mesi',
-            payment: formData.amount ? `€${formData.amount}` : 'Da concordare',
-            recipient: formData.clientName,
-            content: formData.description,
-            topic: formData.subject,
-            context: formData.description
-          }
+          documentType: formData.type,
+          details
         })
       })
 
-      const data = await response.json()
+      let data
+      try {
+        data = await response.json()
+      } catch (e) {
+        throw new Error('Errore del server. Riprova.')
+      }
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Errore nella generazione')
+      }
       
-      if (response.ok && data.document) {
+      if (data.document) {
         setGeneratedDoc({
-          title: `${formData.type}_${formData.clientName}`,
+          title: `${formData.type}_${Date.now()}`,
           content: data.document
         })
       } else {
-        setError(data.error || 'Errore nella generazione del documento')
+        setError('Documento non ricevuto')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
-      setError('Errore di connessione')
+      setError(error.message || 'Errore di connessione')
     } finally {
       setLoading(false)
     }
@@ -89,6 +142,252 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
     a.download = `${generatedDoc.title}.txt`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const renderFormFields = () => {
+    switch (formData.type) {
+      case 'contratto':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Parti Contraenti *
+              </label>
+              <input
+                type="text"
+                value={formData.parties}
+                onChange={(e) => setFormData({...formData, parties: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Studio Legale XYZ e Cliente ABC"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Oggetto Contratto *
+              </label>
+              <textarea
+                value={formData.subject}
+                onChange={(e) => setFormData({...formData, subject: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                rows={2}
+                placeholder="Consulenza legale in materia fiscale..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Corrispettivo *
+              </label>
+              <input
+                type="text"
+                value={formData.payment}
+                onChange={(e) => setFormData({...formData, payment: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="€2.500 + IVA"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Durata
+              </label>
+              <input
+                type="text"
+                value={formData.duration}
+                onChange={(e) => setFormData({...formData, duration: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="12 mesi"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Clausole Aggiuntive
+              </label>
+              <textarea
+                value={formData.additionalClauses}
+                onChange={(e) => setFormData({...formData, additionalClauses: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                rows={3}
+                placeholder="Eventuali clausole personalizzate..."
+              />
+            </div>
+          </>
+        )
+
+      case 'lettera':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Destinatario *
+              </label>
+              <input
+                type="text"
+                value={formData.recipient}
+                onChange={(e) => setFormData({...formData, recipient: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Spett.le Azienda XYZ"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Oggetto *
+              </label>
+              <input
+                type="text"
+                value={formData.subject}
+                onChange={(e) => setFormData({...formData, subject: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Richiesta informazioni"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Contenuto *
+              </label>
+              <textarea
+                value={formData.content}
+                onChange={(e) => setFormData({...formData, content: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                rows={4}
+                placeholder="Corpo della lettera..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Tono
+              </label>
+              <select
+                value={formData.tone}
+                onChange={(e) => setFormData({...formData, tone: e.target.value as any})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+              >
+                <option value="formale">Formale</option>
+                <option value="informale">Informale</option>
+                <option value="legale">Legale</option>
+              </select>
+            </div>
+          </>
+        )
+
+      case 'privacy':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Nome Azienda *
+              </label>
+              <input
+                type="text"
+                value={formData.companyName}
+                onChange={(e) => setFormData({...formData, companyName: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Studio Legale XYZ"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                P.IVA
+              </label>
+              <input
+                type="text"
+                value={formData.vatNumber}
+                onChange={(e) => setFormData({...formData, vatNumber: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="IT12345678901"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Indirizzo Sede Legale *
+              </label>
+              <input
+                type="text"
+                value={formData.address}
+                onChange={(e) => setFormData({...formData, address: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Via Roma 1, 20100 Milano"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Titolare del Trattamento *
+              </label>
+              <input
+                type="text"
+                value={formData.dataController}
+                onChange={(e) => setFormData({...formData, dataController: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Avv. Mario Rossi"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Sito Web
+              </label>
+              <input
+                type="url"
+                value={formData.websiteUrl}
+                onChange={(e) => setFormData({...formData, websiteUrl: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="https://www.studiolegale.it"
+              />
+            </div>
+          </>
+        )
+
+      case 'termini':
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Nome Azienda *
+              </label>
+              <input
+                type="text"
+                value={formData.companyName}
+                onChange={(e) => setFormData({...formData, companyName: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                placeholder="Studio Legale XYZ"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Descrizione Servizio *
+              </label>
+              <textarea
+                value={formData.service}
+                onChange={(e) => setFormData({...formData, service: e.target.value})}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                rows={4}
+                placeholder="Piattaforma online per consulenza legale..."
+              />
+            </div>
+          </>
+        )
+
+      default:
+        return (
+          <div className="text-gray-400 text-sm text-center py-8">
+            Seleziona un tipo di documento per iniziare
+          </div>
+        )
+    }
+  }
+
+  const isFormValid = () => {
+    if (!formData.type) return false
+    
+    switch (formData.type) {
+      case 'contratto':
+        return formData.parties && formData.subject && formData.payment
+      case 'lettera':
+        return formData.recipient && formData.subject && formData.content
+      case 'privacy':
+        return formData.companyName && formData.address && formData.dataController
+      case 'termini':
+        return formData.companyName && formData.service
+      default:
+        return false
+    }
   }
 
   return (
@@ -123,76 +422,7 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Nome Cliente
-                </label>
-                <input
-                  type="text"
-                  value={formData.clientName}
-                  onChange={(e) => setFormData({...formData, clientName: e.target.value})}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-                  placeholder="Mario Rossi SRL"
-                />
-              </div>
-
-              {(formData.type === 'contract' || formData.type === 'invoice') && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Importo (€)
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.amount}
-                      onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-                      placeholder="2500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Descrizione Servizio
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => setFormData({...formData, description: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-                      rows={3}
-                      placeholder="Consulenza fiscale..."
-                    />
-                  </div>
-                </>
-              )}
-
-              {formData.type === 'letter' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Oggetto
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.subject}
-                      onChange={(e) => setFormData({...formData, subject: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-                      placeholder="Richiesta informazioni"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Contenuto
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => setFormData({...formData, description: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-                      rows={4}
-                      placeholder="Corpo della lettera..."
-                    />
-                  </div>
-                </>
-              )}
+              {renderFormFields()}
 
               {error && (
                 <div className="bg-red-500/20 border border-red-500 text-red-200 px-3 py-2 rounded text-sm">
@@ -202,8 +432,8 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
 
               <button
                 onClick={generateDocument}
-                disabled={loading || !formData.type || !formData.clientName}
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded text-sm font-semibold disabled:opacity-50"
+                disabled={loading || !isFormValid()}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Generazione...' : 'Genera Documento'}
               </button>
