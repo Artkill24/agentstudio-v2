@@ -7,92 +7,116 @@ const supabase = createClient(
 
 export class DashboardService {
   async getUserStats(userId: string) {
-    // Get documents count
-    const { data: documents, count: documentsCount } = await supabase
+    // Conta documenti generati
+    const { count: docsCount } = await supabase
       .from('generated_documents')
-      .select('*', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
 
-    // Get research count
-    const { data: research, count: researchCount } = await supabase
+    // Conta fatture generate
+    const { count: invoicesCount } = await supabase
+      .from('invoices')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+
+    // Conta ricerche
+    const { count: researchCount } = await supabase
       .from('research_history')
-      .select('*', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
 
-    // Get recent activity
+    // Attività recenti (ultimi 10)
     const { data: recentDocs } = await supabase
       .from('generated_documents')
-      .select('title, document_type, created_at')
+      .select('document_type, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(5)
+
+    const { data: recentInvoices } = await supabase
+      .from('invoices')
+      .select('invoice_number, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(5)
 
     const { data: recentResearch } = await supabase
       .from('research_history')
-      .select('query, category, created_at')
+      .select('query, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(5)
 
-    // Calculate time saved (rough estimate)
-    const timeSaved = (documentsCount || 0) * 2 + (researchCount || 0) * 1.5 // hours
+    // Combina e ordina attività
+    const activities = [
+      ...(recentDocs || []).map(doc => ({
+        type: 'document',
+        title: `Documento: ${doc.document_type}`,
+        subtitle: 'Generato con Document Agent',
+        timestamp: doc.created_at
+      })),
+      ...(recentInvoices || []).map(inv => ({
+        type: 'invoice',
+        title: `Fattura ${inv.invoice_number}`,
+        subtitle: 'Generata con Invoice Generator',
+        timestamp: inv.created_at
+      })),
+      ...(recentResearch || []).map(res => ({
+        type: 'research',
+        title: `Ricerca: ${res.query.substring(0, 50)}...`,
+        subtitle: 'Ricerca con Research Agent',
+        timestamp: res.created_at
+      }))
+    ]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 10)
+
+    const totalDocs = (docsCount || 0) + (invoicesCount || 0)
 
     return {
       stats: {
-        documentsGenerated: documentsCount || 0,
+        documentsGenerated: totalDocs,
         researchQueries: researchCount || 0,
-        timeSavedHours: Math.round(timeSaved),
-        totalSessions: (documentsCount || 0) + (researchCount || 0)
+        timeSavedHours: Math.round(totalDocs * 2 + (researchCount || 0) * 1.5),
+        totalSessions: totalDocs + (researchCount || 0)
       },
-      recentActivity: [
-        ...(recentDocs?.map(doc => ({
-          type: 'document' as const,
-          title: doc.title,
-          subtitle: doc.document_type,
-          timestamp: doc.created_at
-        })) || []),
-        ...(recentResearch?.map(research => ({
-          type: 'research' as const,
-          title: research.query,
-          subtitle: research.category,
-          timestamp: research.created_at
-        })) || [])
-      ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 8)
+      recentActivity: activities
     }
   }
 
   async getAgentStatus(userId: string) {
-    const now = new Date()
-    const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    // Conta documenti ultimi 7 giorni
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-    // Check recent usage to determine "active" status
     const { count: recentDocs } = await supabase
       .from('generated_documents')
-      .select('*', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('created_at', lastWeek.toISOString())
+      .gte('created_at', sevenDaysAgo.toISOString())
+
+    const { count: recentInvoices } = await supabase
+      .from('invoices')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', sevenDaysAgo.toISOString())
 
     const { count: recentResearch } = await supabase
       .from('research_history')
-      .select('*', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('created_at', lastWeek.toISOString())
+      .gte('created_at', sevenDaysAgo.toISOString())
+
+    const totalRecent = (recentDocs || 0) + (recentInvoices || 0)
 
     return {
-      clientAgent: {
-        status: 'active' as const,
-        lastUsed: 'Sempre attivo',
-        usage: 'Chat disponibile 24/7'
-      },
       documentAgent: {
-        status: (recentDocs || 0) > 0 ? 'active' : 'idle' as const,
-        lastUsed: (recentDocs || 0) > 0 ? 'Questa settimana' : 'Mai utilizzato',
-        usage: `${recentDocs || 0} documenti generati`
+        status: totalRecent > 0 ? 'active' : 'idle',
+        usage: totalRecent > 0 ? `${totalRecent} documenti questa settimana` : '0 documenti generati'
       },
       researchAgent: {
-        status: (recentResearch || 0) > 0 ? 'active' : 'idle' as const,
-        lastUsed: (recentResearch || 0) > 0 ? 'Questa settimana' : 'Mai utilizzato', 
-        usage: `${recentResearch || 0} ricerche effettuate`
+        status: (recentResearch || 0) > 0 ? 'active' : 'idle',
+        usage: (recentResearch || 0) > 0 ? `${recentResearch} ricerche questa settimana` : '0 ricerche effettuate'
       }
     }
   }

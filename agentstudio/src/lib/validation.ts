@@ -33,11 +33,11 @@ export const sanitizeText = (input: string, maxLength: number = 5000): string =>
 // Document type validation
 export const documentTypeSchema = z.enum([
   'contratto',
-  'lettera',
-  'relazione',
-  'fattura',
+  'lettera', 
   'privacy',
-  'default'
+  'termini',
+  'fattura',
+  'altro'
 ])
 
 // Team role validation

@@ -124,6 +124,17 @@ function validateAndSanitizeDetails(
       sanitized.service = sanitizeText(details.service, 1000)
       break
 
+    case 'fattura':
+      if (!details.companyName) throw new ValidationError('Il nome dell\'azienda è obbligatorio')
+      if (!details.amount) throw new ValidationError('L\'importo è obbligatorio')
+  
+      sanitized.companyName = sanitizeText(details.companyName, 200)
+      sanitized.amount = sanitizeText(String(details.amount), 50)
+  
+      if (details.clientName) sanitized.clientName = sanitizeText(details.clientName, 200)
+      if (details.description) sanitized.description = sanitizeText(details.description, 1000)
+      break
+
     case 'altro':
       // Sanitizza tutti i campi stringa
       Object.entries(details).forEach(([key, value]) => {
@@ -557,6 +568,8 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           team_id: subscription?.team_id,
           document_type: type,
+          title: `${type} - ${new Date().toISOString().split('T')[0]}`,
+          client_name: sanitizedDetails.companyName || sanitizedDetails.clientName || 'N/A',
           content: documentText,
           metadata: {
             details: sanitizedDetails,
@@ -601,29 +614,24 @@ export async function POST(request: NextRequest) {
       })
 
       // Log usage metrics (opzionale ma consigliato per analytics)
-      await supabase
-        .from('usage_metrics')
-        .insert({
-          user_id: userId,
-          action: 'document_generated',
-          resource_type: 'document',
-          resource_id: savedDoc.id,
-          metadata: {
-            documentType: type,
-            tokens: completion.usage?.total_tokens,
-            duration,
-            model: completion.model
-          }
-        })
-        try {
-          await supabase
-            .from('usage_metrics')
-            .insert({
-              // ... i tuoi dati
-            })
-        } catch (err) {
-          console.error('Failed to log metrics:', err)
-        }
+      try {
+        await supabase
+          .from('usage_metrics')
+          .insert({
+            user_id: userId,
+            action: 'document_generated',
+            resource_type: 'document',
+            resource_id: savedDoc.id,
+            metadata: {
+              documentType: type,
+              tokens: completion.usage?.total_tokens,
+              duration,
+              model: completion.model
+            }
+          })
+      } catch (err) {
+        console.error('Failed to log metrics:', err)
+      }
 
       // ========== SUCCESS RESPONSE ==========
       return NextResponse.json({
