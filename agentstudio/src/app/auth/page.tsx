@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Sparkles, Mail, Github, Facebook } from 'lucide-react'
+import { Sparkles, Github } from 'lucide-react'
 
 export default function AuthPage() {
   const [email, setEmail] = useState('')
@@ -13,11 +13,11 @@ export default function AuthPage() {
   const [error, setError] = useState('')
   const router = useRouter()
 
-  const handleOAuthSignIn = async (provider: 'github' | 'facebook') => {
+  const handleGitHubSignIn = async () => {
     try {
       setLoading(true)
       const { error } = await supabase.auth.signInWithOAuth({
-        provider,
+        provider: 'github',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`
         }
@@ -25,7 +25,6 @@ export default function AuthPage() {
       if (error) throw error
     } catch (error: any) {
       setError(error.message)
-    } finally {
       setLoading(false)
     }
   }
@@ -37,20 +36,11 @@ export default function AuthPage() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`
-          }
-        })
+        const { error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
-        alert('Controlla la tua email per confermare la registrazione')
+        router.push('/setup')
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        })
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
         router.push('/dashboard')
       }
@@ -69,17 +59,33 @@ export default function AuthPage() {
           <h1 className="text-3xl font-bold text-white mb-2">
             {isSignUp ? 'Crea Account' : 'Accedi al tuo Studio'}
           </h1>
-          <p className="text-gray-400">
-            {isSignUp ? 'Inizia gratis, nessuna carta richiesta' : 'Benvenuto, iniziamo!'}
-          </p>
+          <p className="text-gray-400">Benvenuto, iniziamo!</p>
         </div>
 
         <div className="bg-gray-800 rounded-lg p-8 border border-gray-700">
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500 text-red-400 rounded">
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500 text-red-400 rounded text-sm">
               {error}
             </div>
           )}
+
+          <button
+            onClick={handleGitHubSignIn}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 disabled:opacity-50 mb-6"
+          >
+            <Github className="h-5 w-5" />
+            Continua con GitHub
+          </button>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-600"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-800 text-gray-400">Oppure con email</span>
+            </div>
+          </div>
 
           <form onSubmit={handleEmailAuth} className="space-y-4">
             <div>
@@ -111,34 +117,6 @@ export default function AuthPage() {
             </button>
           </form>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-600"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-800 text-gray-400">Oppure continua con</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <button
-              onClick={() => handleOAuthSignIn('github')}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-3 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 disabled:opacity-50"
-            >
-              <Github className="h-5 w-5" />
-              GitHub
-            </button>
-            <button
-              onClick={() => handleOAuthSignIn('facebook')}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-3 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
-            >
-              <Facebook className="h-5 w-5" />
-              Facebook
-            </button>
-          </div>
-
           <div className="mt-6 text-center">
             <button
               onClick={() => setIsSignUp(!isSignUp)}
@@ -147,6 +125,12 @@ export default function AuthPage() {
               {isSignUp ? 'Hai un account? Accedi' : 'Non hai un account? Registrati gratis'}
             </button>
           </div>
+        </div>
+
+        <div className="mt-6 text-center">
+          <a href="/" className="text-gray-400 hover:text-white text-sm">
+            Torna alla homepage
+          </a>
         </div>
       </div>
     </div>
