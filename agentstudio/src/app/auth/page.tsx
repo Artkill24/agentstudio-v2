@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Sparkles, Github } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 
 export default function AuthPage() {
   const [email, setEmail] = useState('')
@@ -12,22 +12,6 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
-
-  const handleGitHubSignIn = async () => {
-    try {
-      setLoading(true)
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'github',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`
-        }
-      })
-      if (error) throw error
-    } catch (error: any) {
-      setError(error.message)
-      setLoading(false)
-    }
-  }
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,24 +52,6 @@ export default function AuthPage() {
               {error}
             </div>
           )}
-
-          <button
-            onClick={handleGitHubSignIn}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 disabled:opacity-50 mb-6"
-          >
-            <Github className="h-5 w-5" />
-            Continua con GitHub
-          </button>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-600"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-800 text-gray-400">Oppure con email</span>
-            </div>
-          </div>
 
           <form onSubmit={handleEmailAuth} className="space-y-4">
             <div>
