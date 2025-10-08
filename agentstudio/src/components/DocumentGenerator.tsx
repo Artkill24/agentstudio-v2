@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { FileText, X, Download } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { PDFDownloadLink } from '@react-pdf/renderer'
+import { ContractPDF } from '@/components/pdf/ContractPDF'
 
 interface DocumentGeneratorProps {
   onClose: () => void
@@ -51,13 +53,12 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
 
     setLoading(true)
     setError(null)
-    
+  
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      
-      // Prepara i dettagli in base al tipo
+    
       let details: any = {}
-      
+    
       switch (formData.type) {
         case 'contratto':
           details = {
@@ -91,46 +92,43 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
             service: formData.service
           }
           break
-      }
+        }
 
-      const response = await fetch('/api/document', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({
-          documentType: formData.type,
-          details
+        const response = await fetch('/api/document', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            documentType: formData.type,
+            details
+          })
         })
-      })
 
-      let data
-      try {
-        data = await response.json()
-      } catch (e) {
-        throw new Error('Errore del server. Riprova.')
-      }
+        const data = await response.json()
 
-      if (!response.ok) {
-        throw new Error(data?.error || 'Errore nella generazione')
+        if (!response.ok) {
+          throw new Error(data?.error || 'Errore nella generazione')
+        }
+
+        if (data.document) {
+          setGeneratedDoc({
+            title: `${documentTypes.find(t => t.value === formData.type)?.label || formData.type}`,
+            content: data.document,
+            client_name: formData.clientName || formData.recipient || formData.companyName || 'Cliente',
+            type: formData.type
+          })
+        } else {
+          throw new Error('Documento non ricevuto dal server')
+        }
+      } catch (error: any) {
+        console.error('Error:', error)
+        setError(error.message || 'Errore di connessione')
+      } finally {
+        setLoading(false)
       }
-      
-      if (data.document) {
-        setGeneratedDoc({
-          title: `${formData.type}_${Date.now()}`,
-          content: data.document
-        })
-      } else {
-        setError('Documento non ricevuto')
-      }
-    } catch (error: any) {
-      console.error('Error:', error)
-      setError(error.message || 'Errore di connessione')
-    } finally {
-      setLoading(false)
     }
-  }
 
   const downloadDocument = () => {
     if (!generatedDoc) return
@@ -445,13 +443,33 @@ export default function DocumentGenerator({ onClose }: DocumentGeneratorProps) {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">{generatedDoc.title}</h3>
-                  <button
-                    onClick={downloadDocument}
-                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
-                  >
-                    <Download className="h-4 w-4" />
-                    <span>Download</span>
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <PDFDownloadLink
+                      document={
+                        <ContractPDF 
+                          title={generatedDoc.title}
+                          content={generatedDoc.content}
+                          clientName={generatedDoc.client_name}
+                        />
+                      }
+                      fileName={`${generatedDoc.title.replace(/\s+/g, '_')}.pdf`}
+                      className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm"
+                    >
+                      {({ loading }) => (
+                        <>
+                          <Download className="h-4 w-4" />
+                          <span>{loading ? 'Generazione PDF...' : 'Scarica PDF'}</span>
+                        </>
+                      )}
+                    </PDFDownloadLink>
+                    <button
+                      onClick={downloadDocument}
+                      className="flex items-center space-x-2 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm"
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>Scarica TXT</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="bg-white text-black p-6 rounded text-sm leading-relaxed">
                   <pre className="whitespace-pre-wrap font-sans">{generatedDoc.content}</pre>
