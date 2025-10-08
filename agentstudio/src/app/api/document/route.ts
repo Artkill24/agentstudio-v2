@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import OpenAI from 'openai'
+import { generateWithFallback } from '@/lib/openrouter-client'
 import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
 import { sanitizeText, documentTypeSchema, ValidationError } from '@/lib/validation'
@@ -10,15 +10,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const openrouter = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-  defaultHeaders: {
-    "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL,
-    "X-Title": "AgentStudio"
-  }
-})
 
 // ============= TYPES =============
 interface DocumentDetails {
@@ -43,6 +34,11 @@ interface DocumentDetails {
   
   // Termini
   service?: string
+  
+  // Fattura
+  amount?: string | number
+  clientName?: string
+  description?: string
   
   // Generico
   [key: string]: any
@@ -497,40 +493,27 @@ export async function POST(request: NextRequest) {
         }, { status: 429 })
       }
 
-      // ========== GENERATE DOCUMENT WITH AI ==========
+      // ========== GENERATE DOCUMENT WITH AI (usando fallback) ==========
       const prompt = buildDocumentPrompt(type, sanitizedDetails)
 
-      let completion: OpenAI.Chat.Completions.ChatCompletion
+      let result: Awaited<ReturnType<typeof generateWithFallback>>
       try {
-        completion = await openrouter.chat.completions.create({
-          model: "google/gemini-2.0-flash-exp:free",
-          messages: [{ 
-            role: "user", 
-            content: prompt 
-          }],
+        result = await generateWithFallback(prompt, {
           temperature: 0.3, // Deterministico per documenti legali
-          max_tokens: 4000,
-          top_p: 0.9
+          maxTokens: 4000,
         })
       } catch (aiError: any) {
-        console.error('OpenRouter API error:', {
-          status: aiError?.status,
+        console.error('Document generation error:', {
           message: aiError?.message,
-          type: aiError?.type,
-          userId
+          userId,
+          documentType: type
         })
 
-        if (aiError?.status === 429) {
+        // Gestione errori specifici
+        if (aiError?.message?.includes('rate limit') || aiError?.message?.includes('429')) {
           return NextResponse.json(
             { error: 'Servizio AI temporaneamente sovraccarico. Riprova tra qualche minuto.' },
             { status: 503 }
-          )
-        }
-
-        if (aiError?.status === 401) {
-          return NextResponse.json(
-            { error: 'Errore di autenticazione con il servizio AI' },
-            { status: 502 }
           )
         }
 
@@ -540,7 +523,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const documentText = completion.choices[0]?.message?.content
+      const documentText = result.text
 
       if (!documentText || documentText.length < 100) {
         console.error('Generated document too short or empty', {
@@ -573,8 +556,9 @@ export async function POST(request: NextRequest) {
           content: documentText,
           metadata: {
             details: sanitizedDetails,
-            model: completion.model,
-            tokens: completion.usage?.total_tokens,
+            model: result.model,
+            tokens: result.tokensUsed,
+            modelsAttempted: result.modelsAttempted,
             generatedAt: new Date().toISOString(),
             prompt_version: '2.0'
           }
@@ -608,7 +592,9 @@ export async function POST(request: NextRequest) {
         documentType: type,
         documentId: savedDoc.id,
         duration,
-        tokens: completion.usage?.total_tokens,
+        tokens: result.tokensUsed,
+        model: result.model,
+        modelsAttempted: result.modelsAttempted,
         remaining: limitCheck.remaining,
         planName: limitCheck.planName
       })
@@ -624,9 +610,10 @@ export async function POST(request: NextRequest) {
             resource_id: savedDoc.id,
             metadata: {
               documentType: type,
-              tokens: completion.usage?.total_tokens,
+              tokens: result.tokensUsed,
               duration,
-              model: completion.model
+              model: result.model,
+              modelsAttempted: result.modelsAttempted
             }
           })
       } catch (err) {
@@ -646,8 +633,9 @@ export async function POST(request: NextRequest) {
         },
         metadata: {
           type,
-          tokens: completion.usage?.total_tokens,
-          model: completion.model,
+          tokens: result.tokensUsed,
+          model: result.model,
+          modelsAttempted: result.modelsAttempted,
           generatedAt: savedDoc.created_at,
           duration
         }
@@ -713,7 +701,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from('generated_documents')
-      .select('id, document_type, created_at, metadata', { count: 'exact' })
+      .select('id, document_type, title, client_name, created_at, metadata', { count: 'exact' })
       .eq('user_id', user.id)
 
     if (documentType) {
