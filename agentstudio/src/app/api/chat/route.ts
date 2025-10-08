@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     // 8. Chiamata OpenRouter
     const completion = await openrouter.chat.completions.create({
-      model: "deepseek/deepseek-chat-v3.1:free",
+      model: "google/gemini-2.0-flash-exp:free",
       messages: messages,
       temperature: 0.7,
       max_tokens: 1000
