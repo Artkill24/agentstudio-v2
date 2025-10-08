@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import OpenAI from 'openai'
+import { chatWithFallback } from '@/lib/openrouter-client'
 import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
 import { sanitizeText, ValidationError } from '@/lib/validation'
@@ -18,22 +18,13 @@ interface ChatRequest {
 
 // Constants
 const MAX_HISTORY_LENGTH = 20
-const MAX_MESSAGE_LENGTH = 2000 // Usato da sanitizeText
+const MAX_MESSAGE_LENGTH = 2000
 
-// Clients
+// Supabase Client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const openrouter = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-  defaultHeaders: {
-    "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL,
-    "X-Title": "AgentStudio"
-  }
-})
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,7 +48,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 2. Rate Limiting (per prevenire spam)
+    // 2. Rate Limiting
     const rateLimit = await rateLimiter.check(
       `chat:${user.id}`,
       RATE_LIMITS.chat.maxRequests,
@@ -111,7 +102,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 5. Sanitizza Input (previene XSS e injection)
+    // 5. Sanitizza Input
     let sanitizedMessage: string
     try {
       sanitizedMessage = sanitizeText(message, MAX_MESSAGE_LENGTH)
@@ -148,7 +139,6 @@ export async function POST(request: NextRequest) {
             content: sanitizeText(String(msg.content), MAX_MESSAGE_LENGTH)
           }
         } catch {
-          // Se la sanitizzazione fallisce, skippa il messaggio
           return null
         }
       }).filter(Boolean) as Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -158,15 +148,11 @@ export async function POST(request: NextRequest) {
       }
     ]
 
-    // 8. Chiamata OpenRouter
-    const completion = await openrouter.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
-      messages: messages,
+    // 8. Chiamata con Fallback Automatico
+    const aiResponse = await chatWithFallback(messages, {
       temperature: 0.7,
       max_tokens: 1000
     })
-
-    const aiResponse = completion.choices[0]?.message?.content
 
     if (!aiResponse) {
       throw new Error('Risposta AI vuota')
@@ -180,7 +166,6 @@ export async function POST(request: NextRequest) {
       { 
         response: aiResponse,
         timestamp: new Date().toISOString(),
-        tokensUsed: completion.usage?.total_tokens,
         remaining: limitCheck.remaining - 1,
         resetAt: limitCheck.resetAt
       },
@@ -210,10 +195,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (error instanceof Error) {
-      // Rate limit di OpenRouter
+      // Rate limit
       if (error.message.includes('rate limit') || error.message.includes('429')) {
         return NextResponse.json(
-          { error: 'Troppo richieste al servizio AI. Riprova tra qualche secondo.' },
+          { error: 'Troppe richieste al servizio AI. Riprova tra qualche secondo.' },
           { status: 429 }
         )
       }
