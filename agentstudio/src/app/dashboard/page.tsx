@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  Sparkles, 
-  MessageCircle, 
-  FileText, 
-  Search, 
+import {
+  Sparkles,
+  MessageCircle,
+  FileText,
+  Search,
   Clock,
   TrendingUp,
   Users,
@@ -20,6 +20,7 @@ import ChatAgent from '@/components/ChatAgent'
 import DocumentGenerator from '@/components/DocumentGenerator'
 import ResearchAgent from '@/components/ResearchAgent'
 import SubscriptionCard from '@/components/SubscriptionCard'
+import AssistantAgent from '@/components/AssistantAgent'
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [subscriptionData, setSubscriptionData] = useState<any>(null)
   const [activeModal, setActiveModal] = useState<string | null>(null)
+  const [showTools, setShowTools] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -56,7 +58,7 @@ export default function Dashboard() {
 
       // Get session
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.access_token) {
         router.push('/auth')
         return
@@ -158,6 +160,11 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Assistente unico — un solo agente, tutti gli strumenti */}
+        <div className="mb-8">
+          <AssistantAgent />
+        </div>
+
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
@@ -212,7 +219,7 @@ export default function Dashboard() {
         {/* Subscription Section */}
         {subscriptionData && dashboardData && (
           <div className="mb-8">
-            <SubscriptionCard 
+            <SubscriptionCard
               subscription={{
                 plan: subscriptionData.plan || 'free',
                 status: subscriptionData.status || 'active',
@@ -230,9 +237,19 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Agent Status */}
+        {/* Strumenti diretti (collassati di default) */}
         <div className="mb-8">
-          <h2 className="text-2xl font-semibold text-white mb-6">I Tuoi Agenti AI</h2>
+          <button
+            onClick={() => setShowTools(!showTools)}
+            className="flex items-center gap-2 text-2xl font-semibold text-white mb-6"
+          >
+            Strumenti Diretti
+            <span className="text-sm font-normal text-gray-400">
+              {showTools ? '(nascondi)' : '(mostra)'}
+            </span>
+          </button>
+
+          {showTools && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
             {/* Client Agent */}
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 hover:border-purple-500/50 transition-all">
@@ -334,6 +351,7 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+          )}
         </div>
 
         {/* Recent Activity */}
@@ -376,8 +394,8 @@ export default function Dashboard() {
 
       {/* Modals */}
       {activeModal === 'chat' && user && (
-        <ChatAgent 
-          userEmail={user.email!} 
+        <ChatAgent
+          userEmail={user.email!}
           onClose={() => setActiveModal(null)}
         />
       )}

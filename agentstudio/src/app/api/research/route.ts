@@ -1,23 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import OpenAI from 'openai'
 import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
 import { querySchema, ValidationError } from '@/lib/validation'
+import { ResearchAgent } from '@/lib/researchAgent'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-const openrouter = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-  defaultHeaders: {
-    "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL,
-    "X-Title": "AgentStudio"
-  }
-})
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +20,7 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.replace('Bearer ', '')
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    
+
     if (authError || !user) {
       return NextResponse.json({ error: 'Token non valido' }, { status: 401 })
     }
@@ -43,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     if (!rateLimit.allowed) {
       return NextResponse.json(
-        { 
+        {
           error: `Troppe ricerche. Riprova tra ${Math.ceil(rateLimit.resetIn / 60000)} minuti.`,
           resetIn: rateLimit.resetIn
         },
@@ -52,16 +43,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse and validate input
-    const { query } = await request.json()
+    const { query, category } = await request.json()
 
     // Validation with Zod schema
     try {
       querySchema.parse(query)
     } catch (error) {
       if (error instanceof ValidationError) {
-        return NextResponse.json({ 
+        return NextResponse.json({
           error: 'Query non valida',
-          details: error.message 
+          details: error.message
         }, { status: 400 })
       }
       return NextResponse.json({ error: 'Query non valida' }, { status: 400 })
@@ -71,9 +62,9 @@ export async function POST(request: NextRequest) {
     const limitCheck = await limitsEnforcer.checkResearchLimit(user.id)
 
     if (!limitCheck.allowed) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: limitCheck.error,
-        remaining: 0 
+        remaining: 0
       }, { status: 429 })
     }
 
@@ -84,36 +75,36 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id)
       .single()
 
-    // Generate research with DeepSeek
-    const prompt = `Sei un assistente di ricerca per studi professionali italiani (avvocati, commercialisti, consulenti).
+    // Get studio profile for context (fallback to defaults if missing)
+    const { data: profile } = await supabase
+      .from('studio_profiles')
+      .select('studio_name, studio_type, practice_areas, location')
+      .eq('user_id', user.id)
+      .single()
 
-Query dell'utente: "${query}"
+    const studioProfile = {
+      studio_name: profile?.studio_name || 'Studio Professionale',
+      studio_type: profile?.studio_type || 'Studio Legale',
+      practice_areas: profile?.practice_areas || ['Diritto civile'],
+      location: profile?.location || 'Italia'
+    }
 
-Compito:
-1. Analizza la query di ricerca
-2. Fornisci informazioni rilevanti e accurate
-3. Organizza la risposta in modo chiaro e strutturato
-4. Evidenzia punti chiave per professionisti
-5. Se rilevante, menziona normative o riferimenti legali italiani
-6. Usa linguaggio professionale ma comprensibile
+    const validCategories = ['jurisprudence', 'regulations', 'precedents', 'general'] as const
+    const researchCategory = validCategories.includes(category)
+      ? category
+      : 'general'
 
-Fornisci una risposta completa, accurata e professionale in italiano.`
+    // Grounded research: Gemini 2.5 Flash + Google Search (real sources)
+    const agent = new ResearchAgent()
+    const research = await agent.research(
+      {
+        query: query.trim(),
+        category: researchCategory,
+      },
+      studioProfile
+    )
 
-    const completion = await openrouter.chat.completions.create({
-      model: "deepseek/deepseek-chat-v3.1:free",
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000
-    })
-
-    const synthesis = completion.choices[0]?.message?.content
-
-    if (!synthesis) {
+    if (!research.results) {
       throw new Error('Nessuna risposta generata dal modello')
     }
 
@@ -124,10 +115,12 @@ Fornisci una risposta completa, accurata e professionale in italiano.`
         user_id: user.id,
         team_id: subscription?.team_id || null,
         query: query.trim(),
-        results: { synthesis },
-        metadata: { 
-          timestamp: new Date().toISOString(),
-          model:  "google/gemini-2.0-flash-exp:free"
+        results: { synthesis: research.results, sources: research.sources },
+        metadata: {
+          timestamp: research.timestamp,
+          model: 'gemini-2.5-flash',
+          grounded: true,
+          category: researchCategory
         }
       })
 
@@ -136,43 +129,31 @@ Fornisci una risposta completa, accurata e professionale in italiano.`
       // Don't fail the request if we can't save history
     }
 
-    return NextResponse.json({ 
-      results: synthesis,
-      sources: [],
+    return NextResponse.json({
+      results: research.results,
+      sources: research.sources,
       remaining: limitCheck.remaining
     })
 
   } catch (error) {
     console.error('Research error:', error)
 
-    // Handle OpenRouter specific errors
-    if (error instanceof OpenAI.APIError) {
-      console.error('OpenRouter API error:', {
-        status: error.status,
-        message: error.message,
-        type: error.type
-      })
+    const message = error instanceof Error ? error.message : String(error)
 
-      if (error.status === 429) {
-        return NextResponse.json({ 
-          error: 'Troppo richieste al servizio AI. Riprova tra qualche secondo.' 
-        }, { status: 429 })
-      }
-
-      if (error.status === 401 || error.status === 403) {
-        return NextResponse.json({ 
-          error: 'Errore di autenticazione con il servizio AI' 
-        }, { status: 503 })
-      }
-
-      return NextResponse.json({ 
-        error: 'Servizio AI temporaneamente non disponibile' 
-      }, { status: 503 })
+    if (message.includes('429') || message.toLowerCase().includes('quota') || message.toLowerCase().includes('rate')) {
+      return NextResponse.json({
+        error: 'Troppe richieste al servizio AI. Riprova tra qualche secondo.'
+      }, { status: 429 })
     }
 
-    // Generic error
-    return NextResponse.json({ 
-      error: 'Errore ricerca' 
+    if (message.includes('API key') || message.includes('API_KEY')) {
+      return NextResponse.json({
+        error: 'Configurazione del servizio AI non valida. Contatta il supporto.'
+      }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      error: 'Errore durante la ricerca. Riprova.'
     }, { status: 500 })
   }
 }

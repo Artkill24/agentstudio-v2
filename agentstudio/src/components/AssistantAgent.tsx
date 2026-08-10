@@ -1,0 +1,250 @@
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { Sparkles, Send, FileText, Search, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+
+interface AssistantSource {
+  title?: string
+  url: string
+}
+
+interface AssistantDocument {
+  title: string
+  content: string
+  type: string
+}
+
+interface AssistantAction {
+  tool: string
+  summary: string
+  document?: AssistantDocument
+  sources?: AssistantSource[]
+}
+
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
+  actions?: AssistantAction[]
+}
+
+function DocumentCard({ doc }: { doc: AssistantDocument }) {
+  const [expanded, setExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(doc.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="mt-3 bg-gray-900/70 border border-gray-700 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="h-4 w-4 text-blue-400 shrink-0" />
+          <span className="text-sm font-medium text-white truncate">{doc.title}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={copy}
+            className="p-1.5 rounded hover:bg-gray-700 text-gray-300"
+            title="Copia documento"
+          >
+            {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+          </button>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-1.5 rounded hover:bg-gray-700 text-gray-300"
+            title={expanded ? 'Comprimi' : 'Espandi'}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+      {expanded && (
+        <pre className="px-4 pb-4 text-xs text-gray-300 whitespace-pre-wrap max-h-96 overflow-y-auto">
+          {doc.content}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+function SourcesList({ sources }: { sources: AssistantSource[] }) {
+  if (!sources.length) return null
+  return (
+    <div className="mt-3 bg-gray-900/70 border border-gray-700 rounded-lg px-4 py-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Search className="h-4 w-4 text-green-400" />
+        <span className="text-sm font-medium text-white">Fonti</span>
+      </div>
+      <ul className="space-y-1">
+        {sources.map((s, i) => (
+          <li key={i} className="text-xs truncate">
+            <a
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline"
+            >
+              {s.title || s.url}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+export default function AssistantAgent() {
+  const [input, setInput] = useState('')
+  const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
+
+  const suggestions = [
+    'Genera un contratto di consulenza per Mario Rossi, 1.500€',
+    'Quali sono le novità sulla fatturazione elettronica?',
+    'Fattura per Bianchi SRL, sviluppo software, 3.000€',
+    'Cerca la normativa sulle ritenute per i professionisti',
+  ]
+
+  const send = async (text?: string) => {
+    const userMessage = (text ?? input).trim()
+    if (!userMessage || loading) return
+
+    setInput('')
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
+    setLoading(true)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      const history = messages.map((m) => ({ role: m.role, content: m.content }))
+
+      const response = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ message: userMessage, history }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.reply) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: data.reply, actions: data.actions || [] },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `Errore: ${data.error || 'Servizio non disponibile'}` },
+        ])
+      }
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Errore di connessione. Riprova.' },
+      ])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-180px)] max-w-4xl mx-auto bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-700 bg-gray-900/50">
+        <Sparkles className="h-5 w-5 text-purple-400" />
+        <div>
+          <h2 className="text-white font-semibold leading-tight">Assistente Studio</h2>
+          <p className="text-xs text-gray-400">
+            Ricerca con fonti reali · Documenti · Fatture — tutto in una conversazione
+          </p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        {messages.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center gap-4">
+            <p className="text-gray-400 text-sm">Cosa posso fare per il tuo studio oggi?</p>
+            <div className="grid gap-2 w-full max-w-md">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => send(s)}
+                  className="text-left text-sm text-gray-300 bg-gray-900/60 hover:bg-gray-700/60 border border-gray-700 rounded-lg px-4 py-3 transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[85%] rounded-xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                m.role === 'user'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-gray-900/70 border border-gray-700 text-gray-200'
+              }`}
+            >
+              {m.content}
+              {m.actions?.map((a, j) => (
+                <div key={j}>
+                  {a.document && <DocumentCard doc={a.document} />}
+                  {a.sources && a.sources.length > 0 && <SourcesList sources={a.sources} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-900/70 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-400">
+              <span className="inline-flex gap-1">
+                <span className="animate-bounce">·</span>
+                <span className="animate-bounce [animation-delay:150ms]">·</span>
+                <span className="animate-bounce [animation-delay:300ms]">·</span>
+              </span>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="px-6 py-4 border-t border-gray-700 bg-gray-900/50">
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
+            placeholder="Scrivi qui: un contratto, una ricerca, una fattura..."
+            className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+            disabled={loading}
+          />
+          <button
+            onClick={() => send()}
+            disabled={loading || !input.trim()}
+            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-lg px-4 py-3 transition-colors"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
