@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!)
+const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
 
 interface StudioProfile {
   studio_name: string
@@ -20,17 +20,19 @@ interface DocumentRequest {
 
 export class DocumentAgent {
   async generateDocument(request: DocumentRequest, profile: StudioProfile) {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-    
     const prompt = this.buildPrompt(request, profile)
-    
-    const result = await model.generateContent(prompt)
-    const content = result.response.text()
-    
+
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    })
+
+    const content = result.text ?? ''
+
     return {
       title: this.generateTitle(request),
       content: content,
-      type: request.type
+      type: request.type,
     }
   }
 

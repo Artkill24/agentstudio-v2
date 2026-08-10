@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!)
+const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
 
 interface ResearchQuery {
   query: string
@@ -15,21 +15,40 @@ interface StudioProfile {
   location: string
 }
 
+export interface ResearchSource {
+  title?: string
+  url: string
+}
+
 export class ResearchAgent {
   async research(query: ResearchQuery, profile: StudioProfile) {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-    
     const prompt = this.buildResearchPrompt(query, profile)
-    
-    const result = await model.generateContent(prompt)
-    const content = result.response.text()
-    
+
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+      },
+    })
+
+    const content = result.text ?? ''
+
+    const sources: ResearchSource[] =
+      result.candidates?.[0]?.groundingMetadata?.groundingChunks
+        ?.map((chunk) => ({
+          title: chunk.web?.title,
+          url: chunk.web?.uri ?? '',
+        }))
+        .filter((s) => s.url !== '') ?? []
+
     return {
       query: query.query,
       category: query.category,
       results: content,
+      sources,
       timestamp: new Date().toISOString(),
-      studio: profile.studio_name
+      studio: profile.studio_name,
     }
   }
 
@@ -43,11 +62,12 @@ Categoria: ${query.category}
 ${query.jurisdiction ? `Giurisdizione: ${query.jurisdiction}` : 'Giurisdizione: Italia'}
 
 ISTRUZIONI:
-1. Fornisci risultati accurati e aggiornati per il contesto italiano
-2. Cita fonti specifiche quando possibile (codici, leggi, sentenze)
+1. Usa la ricerca web per trovare informazioni aggiornate e verificate per il contesto italiano
+2. Cita SOLO fonti reali trovate tramite la ricerca (codici, leggi, sentenze) — non inventare mai riferimenti
 3. Organizza la risposta in sezioni chiare
-4. Includi riferimenti normativi rilevanti
-5. Evidenzia aspetti pratici per l'applicazione professionale`
+4. Includi riferimenti normativi rilevanti con estremi verificabili
+5. Evidenzia aspetti pratici per l'applicazione professionale
+6. Se non trovi fonti affidabili su un punto, dichiaralo esplicitamente invece di improvvisare`
 
     switch (query.category) {
       case 'jurisprudence':
@@ -116,26 +136,26 @@ Fornisci una ricerca completa che includa:
   async getResearchSuggestions(profile: StudioProfile): Promise<string[]> {
     const suggestions: Record<string, string[]> = {
       'Studio Legale': [
-        'Novità Codice della Crisi d\'Impresa',
-        'Riforma del processo civile 2023',
+        "Novità Codice della Crisi d'Impresa",
+        'Riforma del processo civile',
         'GDPR e responsabilità privacy',
         'Contratti internazionali post-Brexit',
-        'Nuove norme antiriciclaggio'
+        'Nuove norme antiriciclaggio',
       ],
       'Studio Commercialista': [
-        'Aggiornamenti fiscali 2025',
+        'Aggiornamenti fiscali 2026',
         'Decreto crescita e agevolazioni',
         'ISA e controlli automatizzati',
         'Fatturazione elettronica B2B',
-        'Bonus investimenti industria 4.0'
+        'Bonus investimenti industria 4.0',
       ],
       'Studio Notarile': [
         'Semplificazioni atti notarili',
-        'Digitale per il notariado',
+        'Digitale per il notariato',
         'Successioni e trust',
-        'Compravendite immobiliari 2025',
-        'APE convenzionale nuove regole'
-      ]
+        'Compravendite immobiliari 2026',
+        'APE convenzionale nuove regole',
+      ],
     }
 
     return suggestions[profile.studio_type] || suggestions['Studio Legale']

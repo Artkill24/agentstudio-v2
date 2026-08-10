@@ -53,7 +53,8 @@ export async function generateWithFallback(
 }
 
 export async function chatWithFallback(
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
+  options?: { temperature?: number; max_tokens?: number }
 ) {
   const errors: string[] = []
   
@@ -70,8 +71,8 @@ export async function chatWithFallback(
       const completion = await openrouter.chat.completions.create({
         model: model,
         messages: cleanMessages,
-        temperature: 0.7,
-        max_tokens: 2000
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.max_tokens ?? 2000
       })
       
       const content = completion.choices[0]?.message?.content
