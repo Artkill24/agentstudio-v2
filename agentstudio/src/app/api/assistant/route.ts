@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { GoogleGenAI, Type, type Content, type FunctionDeclaration } from '@google/genai'
+import { GoogleGenAI, Type, type FunctionDeclaration, type Part } from '@google/genai'
 import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
 import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { ResearchAgent } from '@/lib/researchAgent'
@@ -13,7 +13,7 @@ const supabase = createClient(
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
 
-const MODEL = 'gemini-flash-latest'
+const MODEL = 'gemini-2.5-flash'
 const MAX_TOOL_TURNS = 5
 
 // ---------- Tool declarations (function calling) ----------
@@ -270,29 +270,26 @@ Regole:
 - Non inventare mai riferimenti normativi o sentenze.
 - Rispondi in italiano, professionale ma diretto. Dopo aver generato un documento, riassumilo in 2-3 righe: il testo completo viene mostrato a parte.`
 
-    // Costruzione conversazione
-    const contents: Content[] = [
-      ...history.map((m) => ({
+    // Chat session: l'SDK gestisce history e thought signatures (richieste da Gemini 3.x)
+    const chat = ai.chats.create({
+      model: MODEL,
+      history: history.map((m) => ({
         role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
         parts: [{ text: String(m.content) }],
       })),
-      { role: 'user' as const, parts: [{ text: message }] },
-    ]
+      config: {
+        systemInstruction,
+        tools: [{ functionDeclarations: toolDeclarations }],
+      },
+    })
 
     const actions: AssistantAction[] = []
     let finalText = ''
 
+    let result = await chat.sendMessage({ message })
+
     // Loop di function calling
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-      const result = await ai.models.generateContent({
-        model: MODEL,
-        contents,
-        config: {
-          systemInstruction,
-          tools: [{ functionDeclarations: toolDeclarations }],
-        },
-      })
-
       const calls = result.functionCalls
 
       if (!calls || calls.length === 0) {
@@ -300,14 +297,7 @@ Regole:
         break
       }
 
-      // Aggiungi la risposta del modello (con le chiamate) alla conversazione
-      const modelContent = result.candidates?.[0]?.content
-      if (modelContent) {
-        contents.push(modelContent as Content)
-      }
-
-      // Esegui ogni tool e aggiungi i risultati
-      const responseParts = []
+      const responseParts: Part[] = []
       for (const call of calls) {
         const { resultForModel, action } = await executeTool(
           call.name ?? '',
@@ -323,7 +313,7 @@ Regole:
           },
         })
       }
-      contents.push({ role: 'user', parts: responseParts })
+      result = await chat.sendMessage({ message: responseParts })
     }
 
     if (!finalText) {
