@@ -307,8 +307,8 @@ Regole:
       const modelContent = result.candidates?.[0]?.content
       if (modelContent) {
         const patchedParts: Part[] = (modelContent.parts ?? []).map((p) => {
-          if (p.functionCall && !p.thoughtSignature) {
-            return { ...p, thoughtSignature: SIGNATURE_BYPASS }
+          if (p.functionCall && !(p as Record<string, unknown>).thoughtSignature) {
+            return { ...p, thoughtSignature: SIGNATURE_BYPASS } as Part
           }
           return p
         })
