@@ -23,7 +23,7 @@ export class DocumentAgent {
     const prompt = this.buildPrompt(request, profile)
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-flash-latest',
       contents: prompt,
     })
 

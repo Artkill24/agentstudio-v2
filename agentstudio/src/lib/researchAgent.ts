@@ -25,7 +25,7 @@ export class ResearchAgent {
     const prompt = this.buildResearchPrompt(query, profile)
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-flash-latest',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],

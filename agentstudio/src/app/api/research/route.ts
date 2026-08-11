@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
         results: { synthesis: research.results, sources: research.sources },
         metadata: {
           timestamp: research.timestamp,
-          model: 'gemini-2.5-flash',
+          model: 'gemini-flash-latest',
           grounded: true,
           category: researchCategory
         }

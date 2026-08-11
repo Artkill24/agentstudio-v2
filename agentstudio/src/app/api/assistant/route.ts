@@ -13,7 +13,7 @@ const supabase = createClient(
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
 
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-flash-latest'
 const MAX_TOOL_TURNS = 5
 
 // ---------- Tool declarations (function calling) ----------
