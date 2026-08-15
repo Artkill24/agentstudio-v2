@@ -5,6 +5,7 @@ import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
 import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { ResearchAgent } from '@/lib/researchAgent'
 import { DocumentAgent } from '@/lib/documentAgent'
+import { DeadlineAgent } from '@/lib/deadlineAgent'
 import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
@@ -74,6 +75,62 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
           amount: { type: 'string', description: 'Importo imponibile in euro (solo numero)' },
         },
         required: ['clientName', 'amount'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_deadline',
+      description:
+        "Registra una nuova scadenza o promemoria nello Scadenzario (adempimento fiscale, termine legale, fattura da emettere, scadenza generica). Usalo quando l'utente chiede di ricordare, annotare o tracciare una scadenza.",
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Titolo breve della scadenza' },
+          dueDate: { type: 'string', description: 'Data di scadenza in formato YYYY-MM-DD' },
+          clientName: { type: 'string', description: 'Cliente associato, se rilevante' },
+          category: {
+            type: 'string',
+            enum: ['fiscal', 'legal', 'invoice', 'general'],
+            description: 'Categoria della scadenza',
+          },
+          notes: { type: 'string', description: 'Note aggiuntive' },
+        },
+        required: ['title', 'dueDate'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_deadlines',
+      description:
+        "Elenca le scadenze registrate nello Scadenzario. Usalo quando l'utente chiede quali scadenze ha, cosa scade a breve, o un riepilogo degli adempimenti.",
+      parameters: {
+        type: 'object',
+        properties: {
+          onlyPending: { type: 'boolean', description: 'Se true, mostra solo quelle non completate' },
+          withinDays: { type: 'number', description: 'Filtra solo le scadenze entro N giorni da oggi' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_reminder_letter',
+      description:
+        "Genera una lettera di sollecito/promemoria per una scadenza imminente o scaduta, da inviare al cliente o per uso interno. Usalo quando l'utente chiede di sollecitare, ricordare o scrivere un promemoria su una scadenza specifica.",
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Titolo della scadenza da sollecitare' },
+          dueDate: { type: 'string', description: 'Data di scadenza (YYYY-MM-DD)' },
+          clientName: { type: 'string', description: 'Nome del cliente destinatario' },
+          notes: { type: 'string', description: 'Dettagli aggiuntivi da includere nel sollecito' },
+        },
+        required: ['title', 'clientName'],
       },
     },
   },
@@ -184,6 +241,64 @@ async function executeTool(
       return {
         resultForModel: { status: 'ok', title: doc.title, preview: doc.content.slice(0, 400) },
         action: { tool: 'generate_invoice', summary: doc.title, document: doc },
+      }
+    }
+
+    case 'create_deadline': {
+      const agent = new DeadlineAgent()
+      const deadline = await agent.create(userId, {
+        title: String(args.title ?? 'Scadenza'),
+        dueDate: String(args.dueDate ?? ''),
+        clientName: args.clientName ? String(args.clientName) : undefined,
+        category: (['fiscal', 'legal', 'invoice', 'general'].includes(String(args.category))
+          ? String(args.category)
+          : 'general') as 'fiscal' | 'legal' | 'invoice' | 'general',
+        notes: args.notes ? String(args.notes) : undefined,
+      })
+      return {
+        resultForModel: { status: 'ok', deadline },
+        action: {
+          tool: 'create_deadline',
+          summary: `Scadenza registrata: ${deadline.title} (${deadline.due_date})`,
+        },
+      }
+    }
+
+    case 'list_deadlines': {
+      const agent = new DeadlineAgent()
+      const deadlines = await agent.list(userId, {
+        onlyPending: args.onlyPending === true,
+        withinDays: typeof args.withinDays === 'number' ? args.withinDays : undefined,
+      })
+      return {
+        resultForModel: { count: deadlines.length, deadlines: agent.formatForModel(deadlines) },
+        action: null,
+      }
+    }
+
+    case 'generate_reminder_letter': {
+      const limit = await limitsEnforcer.checkDocumentLimit(userId)
+      if (!limit.allowed) {
+        return {
+          resultForModel: { error: 'Limite documenti mensili raggiunto per il piano attuale.' },
+          action: null,
+        }
+      }
+      const docAgent = new DocumentAgent()
+      const doc = await docAgent.generateDocument(
+        {
+          type: 'letter',
+          clientName: String(args.clientName ?? 'Cliente'),
+          subject: `Sollecito: ${String(args.title ?? 'scadenza')}`,
+          description: `Scadenza "${String(args.title ?? '')}" ${
+            args.dueDate ? `del ${String(args.dueDate)}` : ''
+          }. ${args.notes ? String(args.notes) : ''} Scrivi un sollecito cortese ma chiaro.`,
+        },
+        profile
+      )
+      return {
+        resultForModel: { status: 'ok', title: doc.title, preview: doc.content.slice(0, 400) },
+        action: { tool: 'generate_reminder_letter', summary: doc.title, document: doc },
       }
     }
 
