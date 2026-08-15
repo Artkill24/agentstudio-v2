@@ -10,6 +10,8 @@ import { ClientAgent } from '@/lib/clientAgent'
 import { FiscalCalendarAgent } from '@/lib/fiscalCalendarAgent'
 import { checkVatNumber, validateCodiceFiscale, calculateInvoiceFiscal } from '@/lib/taxTools'
 import { TimeTrackingAgent } from '@/lib/timeTrackingAgent'
+import { sendEmail } from '@/lib/emailSender'
+import { TemplateAgent } from '@/lib/templateAgent'
 import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
@@ -267,6 +269,67 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'send_email_to_client',
+      description:
+        "Invia un'email a un cliente già in rubrica (serve che il cliente abbia un'email salvata). Usalo quando l'utente chiede di mandare, inviare o spedire via email un documento, un sollecito o un messaggio a un cliente. Le risposte del cliente arrivano alla vera casella email del professionista, non ad AgentStudio.",
+      parameters: {
+        type: 'object',
+        properties: {
+          clientName: { type: 'string', description: 'Nome del cliente destinatario (deve avere email in rubrica)' },
+          subject: { type: 'string', description: "Oggetto dell'email" },
+          message: { type: 'string', description: "Testo del messaggio, o il contenuto del documento da inviare" },
+        },
+        required: ['clientName', 'subject', 'message'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_template',
+      description:
+        "Salva un testo come template riutilizzabile con segnaposto tipo {{nomeCliente}} o {{importo}}. Usalo quando l'utente chiede di salvare un modello, un template, o dice che vuole riusare una formulazione per il futuro. Se l'utente fa riferimento a un documento appena generato in conversazione, usane il contenuto.",
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Nome con cui riconoscere il template in futuro' },
+          content: { type: 'string', description: 'Testo del template, con segnaposto tra doppie graffe es. {{clientName}}' },
+          documentType: { type: 'string', enum: ['contract', 'letter', 'invoice', 'privacy', 'custom'] },
+        },
+        required: ['name', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_templates',
+      description: "Elenca i template salvati dallo studio, con i segnaposto che contengono. Usalo quando l'utente chiede quali template ha o cerca un template.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_from_template',
+      description:
+        "Genera un documento a partire da un template salvato, sostituendo i segnaposto con i valori forniti. Usalo quando l'utente chiede di usare un template esistente per un nuovo documento.",
+      parameters: {
+        type: 'object',
+        properties: {
+          templateName: { type: 'string', description: 'Nome del template da usare' },
+          variables: {
+            type: 'object',
+            description: 'Coppie chiave-valore per riempire i segnaposto, es. {"clientName": "Mario Rossi", "importo": "1500"}',
+          },
+        },
+        required: ['templateName', 'variables'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'generate_reminder_letter',
       description:
         "Genera una lettera di sollecito/promemoria per una scadenza imminente o scaduta, da inviare al cliente o per uso interno. Usalo quando l'utente chiede di sollecitare, ricordare o scrivere un promemoria su una scadenza specifica.",
@@ -306,7 +369,8 @@ async function executeTool(
   name: string,
   args: Record<string, unknown>,
   profile: StudioProfile,
-  userId: string
+  userId: string,
+  userEmail: string
 ): Promise<{ resultForModel: Record<string, unknown>; action: AssistantAction | null }> {
   switch (name) {
     case 'legal_research': {
@@ -608,6 +672,87 @@ async function executeTool(
       }
     }
 
+    case 'send_email_to_client': {
+      const clientAgent = new ClientAgent()
+      const client = await clientAgent.findByName(userId, String(args.clientName ?? ''))
+
+      if (!client) {
+        return {
+          resultForModel: { error: 'Cliente non trovato in rubrica. Aggiungilo prima con nome ed email.' },
+          action: null,
+        }
+      }
+      if (!client.email) {
+        return {
+          resultForModel: { error: `${client.name} non ha un'email salvata in rubrica. Aggiungila prima di inviare.` },
+          action: null,
+        }
+      }
+
+      const result = await sendEmail({
+        to: client.email,
+        subject: String(args.subject ?? 'Comunicazione'),
+        bodyText: String(args.message ?? ''),
+        senderName: profile.studio_name,
+        replyTo: userEmail,
+      })
+
+      if (!result.sent) {
+        return { resultForModel: { error: result.error }, action: null }
+      }
+
+      return {
+        resultForModel: { status: 'ok', sentTo: client.email },
+        action: { tool: 'send_email_to_client', summary: `Email inviata a ${client.name} (${client.email})` },
+      }
+    }
+
+    case 'save_template': {
+      const agent = new TemplateAgent()
+      const template = await agent.save(userId, {
+        name: String(args.name ?? ''),
+        content: String(args.content ?? ''),
+        documentType: typeof args.documentType === 'string' ? args.documentType : undefined,
+      })
+      return {
+        resultForModel: { status: 'ok', name: template.name },
+        action: { tool: 'save_template', summary: `Template salvato: ${template.name}` },
+      }
+    }
+
+    case 'list_templates': {
+      const agent = new TemplateAgent()
+      const templates = await agent.list(userId)
+      return {
+        resultForModel: { count: templates.length, templates: agent.formatListForModel(templates) },
+        action: null,
+      }
+    }
+
+    case 'generate_from_template': {
+      const agent = new TemplateAgent()
+      const template = await agent.findByName(userId, String(args.templateName ?? ''))
+
+      if (!template) {
+        return {
+          resultForModel: { error: 'Template non trovato. Usa list_templates per vedere quelli disponibili.' },
+          action: null,
+        }
+      }
+
+      const variables = (args.variables && typeof args.variables === 'object' ? args.variables : {}) as Record<string, string>
+      const filledContent = agent.fill(template, variables)
+
+      return {
+        resultForModel: { status: 'ok', title: template.name, preview: filledContent.slice(0, 400) },
+        action: {
+          tool: 'generate_from_template',
+          summary: template.name,
+          document: { title: template.name, content: filledContent, type: template.document_type },
+        },
+      }
+    }
+
     default:
       return { resultForModel: { error: `Strumento sconosciuto: ${name}` }, action: null }
   }
@@ -713,7 +858,7 @@ Regole:
           args = {}
         }
 
-        const { resultForModel, action } = await executeTool(call.function.name, args, profile, user.id)
+        const { resultForModel, action } = await executeTool(call.function.name, args, profile, user.id, user.email ?? '')
         if (action) actions.push(action)
 
         messages.push({
