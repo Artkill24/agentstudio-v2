@@ -8,6 +8,8 @@ import { DocumentAgent } from '@/lib/documentAgent'
 import { DeadlineAgent } from '@/lib/deadlineAgent'
 import { ClientAgent } from '@/lib/clientAgent'
 import { FiscalCalendarAgent } from '@/lib/fiscalCalendarAgent'
+import { checkVatNumber, validateCodiceFiscale, calculateInvoiceFiscal } from '@/lib/taxTools'
+import { TimeTrackingAgent } from '@/lib/timeTrackingAgent'
 import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
@@ -161,6 +163,104 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
         properties: {
           year: { type: 'number', description: 'Anno di riferimento, default anno corrente' },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_vat_number',
+      description:
+        "Verifica una Partita IVA tramite il sistema ufficiale VIES della Commissione Europea (dato reale, non simulato). Usalo prima di fatturare a un nuovo cliente o quando l'utente chiede di controllare una P.IVA.",
+      parameters: {
+        type: 'object',
+        properties: {
+          countryCode: { type: 'string', description: 'Codice paese a 2 lettere (es. IT, DE, FR)' },
+          vatNumber: { type: 'string', description: 'Numero di partita IVA senza prefisso paese' },
+        },
+        required: ['countryCode', 'vatNumber'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'validate_codice_fiscale',
+      description:
+        "Verifica formalmente se un Codice Fiscale italiano rispetta lo schema corretto (16 caratteri). Controllo di formato, non verifica l'esistenza reale in Anagrafe Tributaria.",
+      parameters: {
+        type: 'object',
+        properties: {
+          codiceFiscale: { type: 'string', description: 'Il codice fiscale da 16 caratteri da verificare' },
+        },
+        required: ['codiceFiscale'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calculate_invoice_fiscal',
+      description:
+        "Calcola rapidamente IVA, ritenuta d'acconto e netto a percepire per una fattura, senza generare un documento. Usalo per domande tipo 'quanto netto su una fattura di 2000 euro forfettario' o 'calcola l'IVA su 1500 euro'.",
+      parameters: {
+        type: 'object',
+        properties: {
+          imponibile: { type: 'number', description: 'Importo imponibile in euro' },
+          regime: { type: 'string', enum: ['forfettario', 'ordinario'], description: 'Regime fiscale' },
+          aliquotaIva: { type: 'number', description: 'Aliquota IVA percentuale, default 22 (solo regime ordinario)' },
+          ritenutaAcconto: { type: 'boolean', description: 'Se applicare la ritenuta d\'acconto 20%, default true per regime ordinario' },
+        },
+        required: ['imponibile', 'regime'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'log_time_entry',
+      description:
+        "Registra ore lavorate per un cliente, da fatturare in seguito. Usalo quando l'utente dice di aver lavorato un certo numero di ore per un cliente.",
+      parameters: {
+        type: 'object',
+        properties: {
+          clientName: { type: 'string', description: 'Nome del cliente' },
+          description: { type: 'string', description: 'Descrizione breve dell\'attività svolta' },
+          hours: { type: 'number', description: 'Ore lavorate' },
+          hourlyRate: { type: 'number', description: 'Tariffa oraria in euro, opzionale' },
+        },
+        required: ['clientName', 'description', 'hours'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_billing_summary',
+      description:
+        "Genera il riepilogo delle ore non ancora fatturate per un cliente, con il totale da mettere in parcella. Usalo quando l'utente chiede di preparare la parcella o vedere le ore da fatturare per un cliente.",
+      parameters: {
+        type: 'object',
+        properties: {
+          clientName: { type: 'string', description: 'Nome del cliente' },
+          markAsBilled: { type: 'boolean', description: 'Se true, segna le ore come già fatturate dopo il riepilogo' },
+        },
+        required: ['clientName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'aml_checklist',
+      description:
+        "Fornisce la checklist di adeguata verifica antiriciclaggio (AML) da compilare prima di accettare un nuovo cliente, come richiesto dal D.Lgs. 231/2007 per professionisti (avvocati, commercialisti, notai). Usalo quando l'utente parla di un nuovo cliente, apertura pratica, o chiede la checklist antiriciclaggio.",
+      parameters: {
+        type: 'object',
+        properties: {
+          clientName: { type: 'string', description: 'Nome del cliente per cui generare la checklist' },
+        },
+        required: ['clientName'],
       },
     },
   },
@@ -403,6 +503,107 @@ async function executeTool(
           tool: 'populate_fiscal_calendar',
           summary: `${result.added} scadenze fiscali importate`,
           sources: result.sources,
+        },
+      }
+    }
+
+    case 'check_vat_number': {
+      const result = await checkVatNumber(String(args.countryCode ?? ''), String(args.vatNumber ?? ''))
+      return {
+        resultForModel: { ...result },
+        action: {
+          tool: 'check_vat_number',
+          summary: result.valid
+            ? `P.IVA ${result.countryCode}${result.vatNumber} valida${result.name ? ` — ${result.name}` : ''}`
+            : `P.IVA ${result.countryCode}${result.vatNumber}: ${result.error ?? 'non valida'}`,
+        },
+      }
+    }
+
+    case 'validate_codice_fiscale': {
+      const result = validateCodiceFiscale(String(args.codiceFiscale ?? ''))
+      return {
+        resultForModel: { ...result },
+        action: {
+          tool: 'validate_codice_fiscale',
+          summary: result.valid ? 'Codice Fiscale formalmente valido' : `Codice Fiscale non valido: ${result.reason}`,
+        },
+      }
+    }
+
+    case 'calculate_invoice_fiscal': {
+      const result = calculateInvoiceFiscal({
+        imponibile: typeof args.imponibile === 'number' ? args.imponibile : parseFloat(String(args.imponibile ?? '0')),
+        regime: args.regime === 'forfettario' ? 'forfettario' : 'ordinario',
+        aliquotaIva: typeof args.aliquotaIva === 'number' ? args.aliquotaIva : undefined,
+        ritenutaAcconto: typeof args.ritenutaAcconto === 'boolean' ? args.ritenutaAcconto : undefined,
+      })
+      return {
+        resultForModel: { ...result },
+        action: {
+          tool: 'calculate_invoice_fiscal',
+          summary: `Netto a percepire: €${result.nettoPercepito.toFixed(2)}`,
+        },
+      }
+    }
+
+    case 'log_time_entry': {
+      if (args.clientName) {
+        await new ClientAgent().upsert(userId, { name: String(args.clientName) }).catch(() => null)
+      }
+      const agent = new TimeTrackingAgent()
+      const entry = await agent.logTime(userId, {
+        clientName: String(args.clientName ?? ''),
+        description: String(args.description ?? ''),
+        hours: typeof args.hours === 'number' ? args.hours : parseFloat(String(args.hours ?? '0')),
+        hourlyRate: typeof args.hourlyRate === 'number' ? args.hourlyRate : undefined,
+      })
+      return {
+        resultForModel: { status: 'ok', entry },
+        action: { tool: 'log_time_entry', summary: `${entry.hours}h registrate per ${entry.client_name}` },
+      }
+    }
+
+    case 'generate_billing_summary': {
+      const agent = new TimeTrackingAgent()
+      const summary = await agent.getUnbilledSummary(userId, String(args.clientName ?? ''))
+      if (args.markAsBilled === true && summary.entries.length > 0) {
+        await agent.markBilled(userId, String(args.clientName ?? ''))
+      }
+      return {
+        resultForModel: {
+          totalHours: summary.totalHours,
+          totalAmount: summary.totalAmount,
+          details: agent.formatSummaryForModel(summary),
+        },
+        action: {
+          tool: 'generate_billing_summary',
+          summary: `Riepilogo ore per ${summary.clientName}: ${summary.totalHours}h`,
+        },
+      }
+    }
+
+    case 'aml_checklist': {
+      const clientName = String(args.clientName ?? 'il cliente')
+      const checklist = [
+        'Identificazione: documento d\'identità valido e codice fiscale/P.IVA verificati',
+        'Titolare effettivo: identificato se il cliente è una persona giuridica (assetto proprietario)',
+        'Scopo e natura della prestazione professionale richiesta: documentata',
+        'Verifica che il cliente non sia in liste di sanzioni internazionali (OFAC, UE, ONU)',
+        'Valutazione del rischio: politically exposed person (PEP)? operazioni in contanti rilevanti?',
+        'Origine dei fondi: verificata per operazioni di importo significativo',
+        'Conservazione documentale: fascicolo cliente con tutta la documentazione raccolta',
+      ]
+      return {
+        resultForModel: {
+          clientName,
+          checklist,
+          disclaimer:
+            'Checklist standard di riferimento (D.Lgs. 231/2007). Non sostituisce la consulenza di un esperto in materia antiriciclaggio per casi complessi o ad alto rischio.',
+        },
+        action: {
+          tool: 'aml_checklist',
+          summary: `Checklist antiriciclaggio per ${clientName}`,
         },
       }
     }
