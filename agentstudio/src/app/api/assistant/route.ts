@@ -6,6 +6,7 @@ import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { ResearchAgent } from '@/lib/researchAgent'
 import { DocumentAgent } from '@/lib/documentAgent'
 import { DeadlineAgent } from '@/lib/deadlineAgent'
+import { ClientAgent } from '@/lib/clientAgent'
 import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
@@ -119,6 +120,38 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'upsert_client',
+      description:
+        "Salva o aggiorna un cliente nella rubrica. Usalo quando l'utente fornisce dati di contatto di un cliente (email, telefono) da ricordare, o esplicitamente chiede di salvare/aggiungere un cliente.",
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Nome del cliente' },
+          email: { type: 'string', description: 'Email del cliente' },
+          phone: { type: 'string', description: 'Telefono del cliente' },
+          notes: { type: 'string', description: 'Note aggiuntive sul cliente' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_clients',
+      description:
+        "Elenca i clienti in rubrica, opzionalmente filtrati per nome. Usalo quando l'utente chiede chi sono i suoi clienti o cerca un cliente specifico.",
+      parameters: {
+        type: 'object',
+        properties: {
+          search: { type: 'string', description: 'Testo per filtrare per nome, opzionale' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'generate_reminder_letter',
       description:
         "Genera una lettera di sollecito/promemoria per una scadenza imminente o scaduta, da inviare al cliente o per uso interno. Usalo quando l'utente chiede di sollecitare, ricordare o scrivere un promemoria su una scadenza specifica.",
@@ -188,6 +221,9 @@ async function executeTool(
     }
 
     case 'generate_document': {
+      if (args.clientName) {
+        await new ClientAgent().upsert(userId, { name: String(args.clientName) }).catch(() => null)
+      }
       const limit = await limitsEnforcer.checkDocumentLimit(userId)
       if (!limit.allowed) {
         return {
@@ -221,6 +257,9 @@ async function executeTool(
     }
 
     case 'generate_invoice': {
+      if (args.clientName) {
+        await new ClientAgent().upsert(userId, { name: String(args.clientName) }).catch(() => null)
+      }
       const limit = await limitsEnforcer.checkDocumentLimit(userId)
       if (!limit.allowed) {
         return {
@@ -245,6 +284,9 @@ async function executeTool(
     }
 
     case 'create_deadline': {
+      if (args.clientName) {
+        await new ClientAgent().upsert(userId, { name: String(args.clientName) }).catch(() => null)
+      }
       const agent = new DeadlineAgent()
       const deadline = await agent.create(userId, {
         title: String(args.title ?? 'Scadenza'),
@@ -299,6 +341,32 @@ async function executeTool(
       return {
         resultForModel: { status: 'ok', title: doc.title, preview: doc.content.slice(0, 400) },
         action: { tool: 'generate_reminder_letter', summary: doc.title, document: doc },
+      }
+    }
+
+    case 'upsert_client': {
+      const agent = new ClientAgent()
+      const { client, created } = await agent.upsert(userId, {
+        name: String(args.name ?? ''),
+        email: args.email ? String(args.email) : undefined,
+        phone: args.phone ? String(args.phone) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+      })
+      return {
+        resultForModel: { status: 'ok', created, client },
+        action: {
+          tool: 'upsert_client',
+          summary: created ? `Cliente aggiunto: ${client.name}` : `Cliente aggiornato: ${client.name}`,
+        },
+      }
+    }
+
+    case 'list_clients': {
+      const agent = new ClientAgent()
+      const clients = await agent.list(userId, args.search ? String(args.search) : undefined)
+      return {
+        resultForModel: { count: clients.length, clients: agent.formatForModel(clients) },
+        action: null,
       }
     }
 
