@@ -343,6 +343,7 @@ export async function POST(request: NextRequest) {
     const history: Array<{ role: string; content: string }> = Array.isArray(body.history)
       ? body.history.slice(-20)
       : []
+    const conversationId: string | null = body.conversationId ? String(body.conversationId) : null
 
     if (!message || message.length > 4000) {
       return NextResponse.json({ error: 'Messaggio non valido' }, { status: 400 })
@@ -421,6 +422,38 @@ Regole:
         actions.length > 0
           ? 'Operazione completata. Trovi il risultato qui sotto.'
           : 'Non sono riuscito a completare la richiesta. Riprova riformulando.'
+    }
+
+    // Persisti i messaggi se la conversazione esiste (silenzioso: non blocca la risposta)
+    if (conversationId) {
+      try {
+        await supabase.from('assistant_messages').insert([
+          { conversation_id: conversationId, role: 'user', content: message },
+          { conversation_id: conversationId, role: 'assistant', content: finalText, actions },
+        ])
+
+        // Titolo automatico dalla prima domanda, solo se la conversazione è ancora "Nuova conversazione"
+        const { data: conv } = await supabase
+          .from('assistant_conversations')
+          .select('title')
+          .eq('id', conversationId)
+          .single()
+
+        if (conv?.title === 'Nuova conversazione') {
+          const autoTitle = message.length > 60 ? message.slice(0, 57) + '...' : message
+          await supabase
+            .from('assistant_conversations')
+            .update({ title: autoTitle, updated_at: new Date().toISOString() })
+            .eq('id', conversationId)
+        } else {
+          await supabase
+            .from('assistant_conversations')
+            .update({ updated_at: new Date().toISOString() })
+            .eq('id', conversationId)
+        }
+      } catch (persistError) {
+        console.error('Failed to persist conversation:', persistError)
+      }
     }
 
     return NextResponse.json({ reply: finalText, actions, remaining: chatLimit.remaining })
