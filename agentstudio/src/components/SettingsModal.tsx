@@ -10,6 +10,7 @@ interface ClientItem {
   name: string
   email: string | null
   phone: string | null
+  notes: string | null
 }
 
 interface SettingsModalProps {
@@ -24,7 +25,11 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPhone, setNewPhone] = useState('')
+  const [newNotes, setNewNotes] = useState('')
   const [savingClient, setSavingClient] = useState(false)
+  const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
+  const [editNotes, setEditNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
 
   const loadClients = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -41,6 +46,27 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
     loadClients()
   }, [])
 
+  const saveNotes = async (client: ClientItem) => {
+    setSavingNotes(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/clients', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: client.name, notes: editNotes }),
+      })
+      if (res.ok) {
+        setExpandedClientId(null)
+        loadClients()
+      }
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
   const addClient = async () => {
     if (!newName.trim() || savingClient) return
     setSavingClient(true)
@@ -52,12 +78,13 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
           Authorization: `Bearer ${session?.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: newName, email: newEmail, phone: newPhone }),
+        body: JSON.stringify({ name: newName, email: newEmail, phone: newPhone, notes: newNotes }),
       })
       if (res.ok) {
         setNewName('')
         setNewEmail('')
         setNewPhone('')
+        setNewNotes('')
         setShowAddClient(false)
         loadClients()
       }
@@ -144,6 +171,13 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
                   placeholder="Telefono (opzionale)"
                   className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
                 />
+                <textarea
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="Note: condizioni speciali, tariffa dedicata, ecc. (opzionale)"
+                  rows={2}
+                  className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                />
                 <button
                   onClick={addClient}
                   disabled={!newName.trim() || savingClient}
@@ -160,9 +194,43 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
               ) : (
                 clients.map((c) => (
                   <div key={c.id} className="px-3 py-2.5 text-sm">
-                    <p className="text-white">{c.name}</p>
-                    {(c.email || c.phone) && (
-                      <p className="text-xs text-gray-500">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
+                    <button
+                      onClick={() => {
+                        if (expandedClientId === c.id) {
+                          setExpandedClientId(null)
+                        } else {
+                          setExpandedClientId(c.id)
+                          setEditNotes(c.notes || '')
+                        }
+                      }}
+                      className="w-full text-left"
+                    >
+                      <p className="text-white">{c.name}</p>
+                      {(c.email || c.phone) && (
+                        <p className="text-xs text-gray-500">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
+                      )}
+                      {c.notes && expandedClientId !== c.id && (
+                        <p className="text-xs text-amber-400/80 mt-1 truncate">📝 {c.notes}</p>
+                      )}
+                    </button>
+
+                    {expandedClientId === c.id && (
+                      <div className="mt-2 space-y-2">
+                        <textarea
+                          value={editNotes}
+                          onChange={(e) => setEditNotes(e.target.value)}
+                          placeholder="Condizioni speciali, tariffa dedicata, note..."
+                          rows={2}
+                          className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 resize-none"
+                        />
+                        <button
+                          onClick={() => saveNotes(c)}
+                          disabled={savingNotes}
+                          className="text-xs bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded px-3 py-1.5 transition-colors"
+                        >
+                          {savingNotes ? 'Salvataggio...' : 'Salva nota'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))
