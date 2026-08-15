@@ -12,6 +12,7 @@ import { checkVatNumber, validateCodiceFiscale, calculateInvoiceFiscal } from '@
 import { TimeTrackingAgent } from '@/lib/timeTrackingAgent'
 import { sendEmail } from '@/lib/emailSender'
 import { TemplateAgent } from '@/lib/templateAgent'
+import { LeadFinderAgent } from '@/lib/leadFinderAgent'
 import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
@@ -324,6 +325,21 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
           },
         },
         required: ['templateName', 'variables'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_potential_clients',
+      description:
+        "Cerca potenziali nuovi clienti (aziende, imprese) tramite ricerca web reale, basandosi sul settore e sulla città dello studio. Usalo quando l'utente chiede di trovare nuovi clienti, fare lead generation, o cercare aziende target nella sua zona.",
+      parameters: {
+        type: 'object',
+        properties: {
+          sector: { type: 'string', description: 'Settore specifico da cercare, opzionale (default: aree di competenza dello studio)' },
+          location: { type: 'string', description: 'Città o zona, opzionale (default: sede dello studio)' },
+        },
       },
     },
   },
@@ -749,6 +765,25 @@ async function executeTool(
           tool: 'generate_from_template',
           summary: template.name,
           document: { title: template.name, content: filledContent, type: template.document_type },
+        },
+      }
+    }
+
+    case 'find_potential_clients': {
+      const agent = new LeadFinderAgent()
+      const result = await agent.findPotentialClients(profile, {
+        sector: args.sector ? String(args.sector) : undefined,
+        location: args.location ? String(args.location) : undefined,
+      })
+      return {
+        resultForModel: {
+          leads: result.leads,
+          disclaimer: result.disclaimer,
+        },
+        action: {
+          tool: 'find_potential_clients',
+          summary: `${result.leads.length} potenziali clienti trovati`,
+          sources: result.sources,
         },
       }
     }
