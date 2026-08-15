@@ -1,4 +1,5 @@
 import { Sparkles, Users, FileText, Search, Receipt, UsersRound } from 'lucide-react'
+import LiveDemo from '@/components/LiveDemo'
 
 export default function Home() {
   const features = [
@@ -65,6 +66,10 @@ export default function Home() {
               Vedi Prezzi
             </a>
           </div>
+        </div>
+
+        <div className="mt-20">
+          <LiveDemo />
         </div>
       </div>
 
