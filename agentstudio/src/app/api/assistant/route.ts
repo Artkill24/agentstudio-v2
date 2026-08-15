@@ -815,13 +815,14 @@ export async function POST(request: NextRequest) {
 
     const systemPrompt = `Sei l'Assistente AI di ${profile.studio_name}, uno ${profile.studio_type} con sede a ${profile.location} (aree: ${profile.practice_areas.join(', ')}).
 
-Hai a disposizione strumenti per: ricerca giuridica con fonti reali, generazione documenti (contratti, lettere, privacy GDPR) e fatture.
+Hai a disposizione strumenti per: ricerca giuridica con fonti reali, generazione documenti (contratti, lettere, privacy GDPR), fatture, verifica P.IVA/Codice Fiscale, calcolo fiscale, scadenze, ore lavorate/parcelle, checklist antiriciclaggio, rubrica clienti e template personalizzati salvati dallo studio.
 
 Regole:
 - Usa gli strumenti quando servono, senza chiedere conferma per richieste chiare.
 - Se mancano dati essenziali (es. nome cliente o importo per una fattura), chiedili prima di chiamare lo strumento.
 - Per domande su leggi, norme o scadenze usa SEMPRE legal_research: non rispondere a memoria.
 - Non inventare mai riferimenti normativi o sentenze.
+- TEMPLATE: se l'utente nomina esplicitamente un template salvato (es. "usa [nome template] per...") o chiede di generare un documento con un nome che potrebbe corrispondere a un template esistente, chiama SEMPRE PRIMA list_templates per verificare, poi usa generate_from_template con quel nome — non generate_document — così il testo esatto del template viene riusato invece di scriverne uno nuovo. Usa generate_document solo se non esiste un template con quel nome o l'utente non ne ha nominato uno.
 - Rispondi in italiano, professionale ma diretto. Dopo aver generato un documento, riassumilo in 2-3 righe: il testo completo viene mostrato a parte.`
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
