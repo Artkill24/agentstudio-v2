@@ -849,6 +849,13 @@ Regole:
 
       messages.push(assistantMessage)
 
+      // Il modello a volte ripete la stessa function call identica più volte nello
+      // stesso turno (stesso nome + stessi argomenti). Eseguiamo l'operazione una
+      // sola volta e riusiamo il risultato per le chiamate duplicate, mostrando
+      // una sola card invece di doppioni — ma rispondiamo comunque a OGNI
+      // tool_call_id, obbligatorio per l'API.
+      const seenCalls = new Map<string, Record<string, unknown>>()
+
       for (const call of toolCalls) {
         if (call.type !== 'function') continue
         let args: Record<string, unknown> = {}
@@ -859,8 +866,17 @@ Regole:
           args = {}
         }
 
-        const { resultForModel, action } = await executeTool(call.function.name, args, profile, user.id, user.email ?? '')
-        if (action) actions.push(action)
+        const callKey = `${call.function.name}:${JSON.stringify(args)}`
+        let resultForModel: Record<string, unknown>
+
+        if (seenCalls.has(callKey)) {
+          resultForModel = seenCalls.get(callKey)!
+        } else {
+          const result = await executeTool(call.function.name, args, profile, user.id, user.email ?? '')
+          resultForModel = result.resultForModel
+          if (result.action) actions.push(result.action)
+          seenCalls.set(callKey, resultForModel)
+        }
 
         messages.push({
           role: 'tool',
