@@ -469,7 +469,8 @@ Regole:
         if (call.type !== 'function') continue
         let args: Record<string, unknown> = {}
         try {
-          args = JSON.parse(call.function.arguments || '{}')
+          const parsed = JSON.parse(call.function.arguments || '{}')
+          args = parsed && typeof parsed === 'object' ? parsed : {}
         } catch {
           args = {}
         }
