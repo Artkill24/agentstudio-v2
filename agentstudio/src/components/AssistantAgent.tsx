@@ -3,9 +3,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Sparkles, Send, FileText, Search, Copy, Check, ChevronDown, ChevronUp,
-  Plus, MessageSquare, Trash2, PanelLeftClose, PanelLeft,
+  Plus, MessageSquare, Trash2, PanelLeftClose, PanelLeft, Paperclip, AlertTriangle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { PDFDownloadLink } from '@react-pdf/renderer'
+import { ContractPDF } from '@/components/pdf/ContractPDF'
+import SignaturePad from './SignaturePad'
+import { PenLine } from 'lucide-react'
 
 interface AssistantSource {
   title?: string
@@ -25,10 +29,18 @@ interface AssistantAction {
   sources?: AssistantSource[]
 }
 
+interface ContractAnalysisResult {
+  summary: string
+  risks: string[]
+  missingClauses: string[]
+  fileName: string
+}
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
   actions?: AssistantAction[]
+  contractAnalysis?: ContractAnalysisResult
 }
 
 interface ConversationSummary {
@@ -40,6 +52,8 @@ interface ConversationSummary {
 function DocumentCard({ doc }: { doc: AssistantDocument }) {
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showSignaturePad, setShowSignaturePad] = useState(false)
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null)
 
   const copy = async () => {
     await navigator.clipboard.writeText(doc.content)
@@ -55,6 +69,25 @@ function DocumentCard({ doc }: { doc: AssistantDocument }) {
           <span className="text-sm font-medium text-white truncate">{doc.title}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {signatureDataUrl ? (
+            <PDFDownloadLink
+              document={<ContractPDF title={doc.title} content={doc.content} clientName="" signatureDataUrl={signatureDataUrl} />}
+              fileName={`${doc.title.replace(/[^a-z0-9]+/gi, '_')}_firmato.pdf`}
+              className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 px-2 py-1 rounded hover:bg-gray-700"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Scarica firmato
+            </PDFDownloadLink>
+          ) : (
+            <button
+              onClick={() => setShowSignaturePad(true)}
+              className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded hover:bg-gray-700"
+              title="Firma questo documento"
+            >
+              <PenLine className="h-3.5 w-3.5" />
+              Firma
+            </button>
+          )}
           <button onClick={copy} className="p-1.5 rounded hover:bg-gray-700 text-gray-300" title="Copia documento">
             {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
           </button>
@@ -67,6 +100,15 @@ function DocumentCard({ doc }: { doc: AssistantDocument }) {
         <pre className="px-4 pb-4 text-xs text-gray-300 whitespace-pre-wrap max-h-96 overflow-y-auto">
           {doc.content}
         </pre>
+      )}
+      {showSignaturePad && (
+        <SignaturePad
+          onClose={() => setShowSignaturePad(false)}
+          onSave={(dataUrl) => {
+            setSignatureDataUrl(dataUrl)
+            setShowSignaturePad(false)
+          }}
+        />
       )}
     </div>
   )
@@ -93,6 +135,51 @@ function SourcesList({ sources }: { sources: AssistantSource[] }) {
   )
 }
 
+function ContractAnalysisCard({ analysis }: { analysis: ContractAnalysisResult }) {
+  return (
+    <div className="mt-3 bg-gray-900/70 border border-gray-700 rounded-lg px-4 py-3 space-y-3">
+      <div className="flex items-center gap-2 text-sm font-medium text-white">
+        <FileText className="h-4 w-4 text-blue-400" />
+        {analysis.fileName}
+      </div>
+      <p className="text-xs text-gray-300">{analysis.summary}</p>
+
+      {analysis.risks.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400 mb-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Rischi individuati
+          </div>
+          <ul className="space-y-1">
+            {analysis.risks.map((r, i) => (
+              <li key={i} className="text-xs text-gray-400 flex gap-1.5">
+                <span className="text-amber-500 shrink-0">•</span>{r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {analysis.missingClauses.length > 0 && (
+        <div>
+          <div className="text-xs font-medium text-gray-300 mb-1.5">Clausole mancanti</div>
+          <ul className="space-y-1">
+            {analysis.missingClauses.map((c, i) => (
+              <li key={i} className="text-xs text-gray-400 flex gap-1.5">
+                <span className="text-gray-600 shrink-0">•</span>{c}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {analysis.risks.length === 0 && analysis.missingClauses.length === 0 && (
+        <p className="text-xs text-green-400">Nessun rischio evidente o clausola mancante rilevata.</p>
+      )}
+    </div>
+  )
+}
+
 function StepView({ m }: { m: Message }) {
   return (
     <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -108,6 +195,7 @@ function StepView({ m }: { m: Message }) {
             {a.sources && a.sources.length > 0 && <SourcesList sources={a.sources} />}
           </div>
         ))}
+        {m.contractAnalysis && <ContractAnalysisCard analysis={m.contractAnalysis} />}
       </div>
     </div>
   )
@@ -121,7 +209,9 @@ export default function AssistantAgent() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const authHeader = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -196,6 +286,39 @@ export default function AssistantAgent() {
     'Ricordami la scadenza IVA del cliente Bianchi per il 30 settembre',
     'Cosa scade nei prossimi 30 giorni?',
   ]
+
+  const uploadContract = async (file: File) => {
+    if (uploading) return
+    setUploading(true)
+    setMessages((prev) => [...prev, { role: 'user', content: `📎 ${file.name}` }])
+
+    try {
+      const headers = await authHeader()
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/analyze-contract', {
+        method: 'POST',
+        headers,
+        body: formData,
+      })
+      const data = await response.json()
+
+      if (response.ok && data.analysis) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: 'Ho analizzato il contratto:', contractAnalysis: data.analysis },
+        ])
+      } else {
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Errore: ${data.error || 'Analisi non riuscita'}` }])
+      }
+    } catch {
+      setMessages((prev) => [...prev, { role: 'assistant', content: 'Errore di connessione durante il caricamento.' }])
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   const send = async (text?: string) => {
     const userMessage = (text ?? input).trim()
@@ -329,6 +452,24 @@ export default function AssistantAgent() {
 
         <div className="px-6 py-4 border-t border-gray-700 bg-gray-900/50">
           <div className="flex gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) uploadContract(file)
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || loading}
+              className="bg-gray-800 border border-gray-600 hover:bg-gray-700 disabled:opacity-40 text-gray-300 rounded-lg px-3 py-3 transition-colors"
+              title="Carica un contratto PDF da analizzare"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
