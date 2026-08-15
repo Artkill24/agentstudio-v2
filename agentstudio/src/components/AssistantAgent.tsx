@@ -9,7 +9,8 @@ import { supabase } from '@/lib/supabase'
 import { PDFDownloadLink } from '@react-pdf/renderer'
 import { ContractPDF } from '@/components/pdf/ContractPDF'
 import SignaturePad from './SignaturePad'
-import { PenLine } from 'lucide-react'
+import { PenLine, Download } from 'lucide-react'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
 
 interface AssistantSource {
   title?: string
@@ -49,6 +50,107 @@ interface ConversationSummary {
   updated_at: string
 }
 
+async function downloadAsDocx(doc: AssistantDocument) {
+  const paragraphs = doc.content.split('\n').map(
+    (line) =>
+      new Paragraph({
+        children: [new TextRun({ text: line || ' ' })],
+      })
+  )
+
+  const document = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            heading: HeadingLevel.HEADING_1,
+            children: [new TextRun({ text: doc.title, bold: true })],
+          }),
+          new Paragraph({ text: '' }),
+          ...paragraphs,
+        ],
+      },
+    ],
+  })
+
+  const blob = await Packer.toBlob(document)
+  const url = URL.createObjectURL(blob)
+  const a = document_createAnchor(url, `${sanitizeFileName(doc.title)}.docx`)
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadAsTxt(doc: AssistantDocument) {
+  const blob = new Blob([`${doc.title}\n\n${doc.content}`], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document_createAnchor(url, `${sanitizeFileName(doc.title)}.txt`)
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function sanitizeFileName(name: string) {
+  return name.replace(/[^a-z0-9]+/gi, '_')
+}
+
+function document_createAnchor(url: string, filename: string) {
+  const a = window.document.createElement('a')
+  a.href = url
+  a.download = filename
+  window.document.body.appendChild(a)
+  a.style.display = 'none'
+  a.addEventListener('click', () => setTimeout(() => a.remove(), 100))
+  return a
+}
+
+function DownloadMenu({ doc }: { doc: AssistantDocument }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-gray-700"
+      >
+        <Download className="h-3.5 w-3.5" />
+        Scarica
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-20 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 w-40">
+            <PDFDownloadLink
+              document={<ContractPDF title={doc.title} content={doc.content} clientName="" />}
+              fileName={`${sanitizeFileName(doc.title)}.pdf`}
+              className="block px-3 py-2 text-xs text-gray-200 hover:bg-gray-700"
+              onClick={() => setOpen(false)}
+            >
+              PDF
+            </PDFDownloadLink>
+            <button
+              onClick={() => {
+                downloadAsDocx(doc)
+                setOpen(false)
+              }}
+              className="block w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-700"
+            >
+              Word (.docx)
+            </button>
+            <button
+              onClick={() => {
+                downloadAsTxt(doc)
+                setOpen(false)
+              }}
+              className="block w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-700"
+            >
+              Testo (.txt)
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function DocumentCard({ doc }: { doc: AssistantDocument }) {
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -69,6 +171,7 @@ function DocumentCard({ doc }: { doc: AssistantDocument }) {
           <span className="text-sm font-medium text-white truncate">{doc.title}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <DownloadMenu doc={doc} />
           {signatureDataUrl ? (
             <PDFDownloadLink
               document={<ContractPDF title={doc.title} content={doc.content} clientName="" signatureDataUrl={signatureDataUrl} />}
