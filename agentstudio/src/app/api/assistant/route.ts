@@ -7,6 +7,7 @@ import { ResearchAgent } from '@/lib/researchAgent'
 import { DocumentAgent } from '@/lib/documentAgent'
 import { DeadlineAgent } from '@/lib/deadlineAgent'
 import { ClientAgent } from '@/lib/clientAgent'
+import { FiscalCalendarAgent } from '@/lib/fiscalCalendarAgent'
 import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
@@ -145,6 +146,20 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
         type: 'object',
         properties: {
           search: { type: 'string', description: 'Testo per filtrare per nome, opzionale' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'populate_fiscal_calendar',
+      description:
+        "Cerca il calendario fiscale ufficiale italiano aggiornato (IVA, F24, dichiarazioni) per l'anno indicato e aggiunge automaticamente le scadenze trovate allo Scadenzario. Usalo quando l'utente chiede di popolare, importare o caricare le scadenze fiscali standard dell'anno.",
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'number', description: 'Anno di riferimento, default anno corrente' },
         },
       },
     },
@@ -367,6 +382,28 @@ async function executeTool(
       return {
         resultForModel: { count: clients.length, clients: agent.formatForModel(clients) },
         action: null,
+      }
+    }
+
+    case 'populate_fiscal_calendar': {
+      const agent = new FiscalCalendarAgent()
+      const result = await agent.populate(
+        userId,
+        typeof args.year === 'number' ? args.year : undefined
+      )
+      return {
+        resultForModel: {
+          added: result.added,
+          skipped: result.skipped,
+          deadlines: result.deadlines,
+          disclaimer:
+            'Scadenze importate da ricerca web reale. Vanno sempre verificate con il calendario ufficiale Agenzia delle Entrate o con un commercialista prima di farvi affidamento.',
+        },
+        action: {
+          tool: 'populate_fiscal_calendar',
+          summary: `${result.added} scadenze fiscali importate`,
+          sources: result.sources,
+        },
       }
     }
 

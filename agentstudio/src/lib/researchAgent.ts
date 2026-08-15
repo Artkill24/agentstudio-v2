@@ -18,7 +18,7 @@ export interface ResearchSource {
   url: string
 }
 
-interface TavilyResult {
+export interface TavilyResult {
   title: string
   url: string
   content: string
@@ -29,7 +29,7 @@ interface TavilyResponse {
   answer?: string
 }
 
-async function tavilySearch(query: string): Promise<TavilyResponse> {
+export async function tavilySearch(query: string): Promise<TavilyResponse> {
   const apiKey = process.env.TAVILY_API_KEY
   if (!apiKey) {
     throw new Error('TAVILY_API_KEY non configurata')
