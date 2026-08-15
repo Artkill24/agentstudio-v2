@@ -26,8 +26,9 @@ const PROVIDERS: ProviderConfig[] = [
   },
   {
     name: 'cloudflare',
-    // account ID va inserito nella env CLOUDFLARE_ACCOUNT_ID
-    baseURL: `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID || ''}/ai/v1`,
+    baseURL: process.env.CLOUDFLARE_ACCOUNT_ID
+      ? `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/v1`
+      : '',
     apiKeyEnv: 'CLOUDFLARE_API_TOKEN',
     models: ['@cf/meta/llama-3.3-70b-instruct-fp8-fast'],
   },
@@ -37,7 +38,7 @@ const clients = new Map<string, OpenAI>()
 
 function getClient(provider: ProviderConfig): OpenAI | null {
   const apiKey = process.env[provider.apiKeyEnv]
-  if (!apiKey) return null
+  if (!apiKey || !provider.baseURL) return null
 
   if (!clients.has(provider.name)) {
     clients.set(provider.name, new OpenAI({ baseURL: provider.baseURL, apiKey }))
