@@ -115,3 +115,44 @@ export async function freeChat(
   })
   return result.text
 }
+
+
+// ---------- Tool calling (function calling) ----------
+// Usato dall'orchestratore dell'Assistente. Formato OpenAI standard,
+// supportato nativamente da Groq e Cerebras.
+
+export async function freeChatWithTools(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  tools: OpenAI.Chat.ChatCompletionTool[],
+  options?: { temperature?: number; maxTokens?: number }
+): Promise<{ message: OpenAI.Chat.ChatCompletionMessage; provider: string; model: string }> {
+  const errors: string[] = []
+
+  for (const provider of PROVIDERS) {
+    const client = getClient(provider)
+    if (!client) {
+      errors.push(`${provider.name}: chiave non configurata`)
+      continue
+    }
+    for (const model of provider.models) {
+      try {
+        const completion = await client.chat.completions.create({
+          model,
+          messages,
+          tools,
+          tool_choice: 'auto',
+          temperature: options?.temperature ?? 0.3,
+          max_tokens: options?.maxTokens ?? 2000,
+        })
+        const message = completion.choices[0]?.message
+        if (!message) throw new Error('Risposta vuota')
+        return { message, provider: provider.name, model }
+      } catch (error: any) {
+        errors.push(`${provider.name}/${model}: ${error.message || error.toString()}`)
+        continue
+      }
+    }
+  }
+
+  throw new Error(`Tutti i provider free hanno fallito (tool calling):\n${errors.join('\n')}`)
+}

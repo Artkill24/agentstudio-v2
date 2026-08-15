@@ -12,7 +12,6 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    // Authentication
     const authHeader = request.headers.get('authorization')
     if (!authHeader) {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
@@ -25,7 +24,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Token non valido' }, { status: 401 })
     }
 
-    // Rate limiting
     const rateLimit = await rateLimiter.check(
       `research:${user.id}`,
       RATE_LIMITS.research.maxRequests,
@@ -42,10 +40,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parse and validate input
     const { query, category } = await request.json()
 
-    // Validation with Zod schema
     try {
       querySchema.parse(query)
     } catch (error) {
@@ -58,7 +54,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Query non valida' }, { status: 400 })
     }
 
-    // Check usage limits with limitsEnforcer
     const limitCheck = await limitsEnforcer.checkResearchLimit(user.id)
 
     if (!limitCheck.allowed) {
@@ -68,14 +63,12 @@ export async function POST(request: NextRequest) {
       }, { status: 429 })
     }
 
-    // Get subscription info for team_id
     const { data: subscription } = await supabase
       .from('subscriptions')
       .select('team_id')
       .eq('user_id', user.id)
       .single()
 
-    // Get studio profile for context (fallback to defaults if missing)
     const { data: profile } = await supabase
       .from('studio_profiles')
       .select('studio_name, studio_type, practice_areas, location')
@@ -94,7 +87,6 @@ export async function POST(request: NextRequest) {
       ? category
       : 'general'
 
-    // Grounded research: Gemini 2.5 Flash + Google Search (real sources)
     const agent = new ResearchAgent()
     const research = await agent.research(
       {
@@ -108,7 +100,6 @@ export async function POST(request: NextRequest) {
       throw new Error('Nessuna risposta generata dal modello')
     }
 
-    // Save to database
     const { error: insertError } = await supabase
       .from('research_history')
       .insert({
@@ -118,7 +109,7 @@ export async function POST(request: NextRequest) {
         results: { synthesis: research.results, sources: research.sources },
         metadata: {
           timestamp: research.timestamp,
-          model: 'gemini-flash-latest',
+          provider: 'tavily+groq',
           grounded: true,
           category: researchCategory
         }
@@ -126,7 +117,6 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('Error saving research history:', insertError)
-      // Don't fail the request if we can't save history
     }
 
     return NextResponse.json({
@@ -142,13 +132,13 @@ export async function POST(request: NextRequest) {
 
     if (message.includes('429') || message.toLowerCase().includes('quota') || message.toLowerCase().includes('rate')) {
       return NextResponse.json({
-        error: 'Troppe richieste al servizio AI. Riprova tra qualche secondo.'
+        error: 'Troppe richieste al servizio di ricerca. Riprova tra qualche secondo.'
       }, { status: 429 })
     }
 
-    if (message.includes('API key') || message.includes('API_KEY')) {
+    if (message.includes('TAVILY_API_KEY')) {
       return NextResponse.json({
-        error: 'Configurazione del servizio AI non valida. Contatta il supporto.'
+        error: 'Servizio di ricerca non configurato. Contatta il supporto.'
       }, { status: 500 })
     }
 

@@ -1,73 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { GoogleGenAI, Type, type FunctionDeclaration, type Part, type Content } from '@google/genai'
+import type OpenAI from 'openai'
 import { rateLimiter, RATE_LIMITS } from '@/lib/rateLimiter'
 import { limitsEnforcer } from '@/lib/limitsEnforcer'
 import { ResearchAgent } from '@/lib/researchAgent'
 import { DocumentAgent } from '@/lib/documentAgent'
+import { freeChatWithTools } from '@/lib/free-llm-client'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
-
-const MODEL = 'gemini-flash-latest'
 const MAX_TOOL_TURNS = 5
 
-// ---------- Tool declarations (function calling) ----------
+// ---------- Tool declarations (formato OpenAI, compatibile Groq/Cerebras) ----------
 
-const toolDeclarations: FunctionDeclaration[] = [
+const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
-    name: 'legal_research',
-    description:
-      'Esegue una ricerca giuridica o normativa aggiornata con fonti web reali. Usalo per domande su leggi, sentenze, normative, adempimenti, scadenze fiscali o qualsiasi informazione che richiede dati verificati e aggiornati.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        query: { type: Type.STRING, description: 'La domanda di ricerca' },
-        category: {
-          type: Type.STRING,
-          enum: ['jurisprudence', 'regulations', 'precedents', 'general'],
-          description: 'Categoria della ricerca',
+    type: 'function',
+    function: {
+      name: 'legal_research',
+      description:
+        'Esegue una ricerca giuridica o normativa aggiornata con fonti web reali. Usalo per domande su leggi, sentenze, normative, adempimenti, scadenze fiscali o qualsiasi informazione che richiede dati verificati e aggiornati.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'La domanda di ricerca' },
+          category: {
+            type: 'string',
+            enum: ['jurisprudence', 'regulations', 'precedents', 'general'],
+            description: 'Categoria della ricerca',
+          },
         },
+        required: ['query'],
       },
-      required: ['query'],
     },
   },
   {
-    name: 'generate_document',
-    description:
-      'Genera un documento professionale completo (contratto, lettera formale o informativa privacy GDPR). Usalo quando l\'utente chiede di creare, scrivere o preparare un documento.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        type: {
-          type: Type.STRING,
-          enum: ['contract', 'letter', 'privacy'],
-          description: 'Tipo di documento',
+    type: 'function',
+    function: {
+      name: 'generate_document',
+      description:
+        "Genera un documento professionale completo (contratto, lettera formale o informativa privacy GDPR). Usalo quando l'utente chiede di creare, scrivere o preparare un documento.",
+      parameters: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['contract', 'letter', 'privacy'],
+            description: 'Tipo di documento',
+          },
+          clientName: { type: 'string', description: 'Nome del cliente o destinatario' },
+          description: { type: 'string', description: 'Descrizione del servizio o contenuto' },
+          amount: { type: 'string', description: 'Importo in euro (solo numero), se rilevante' },
+          subject: { type: 'string', description: 'Oggetto (per lettere)' },
         },
-        clientName: { type: Type.STRING, description: 'Nome del cliente o destinatario' },
-        description: { type: Type.STRING, description: 'Descrizione del servizio o contenuto' },
-        amount: { type: Type.STRING, description: 'Importo in euro (solo numero), se rilevante' },
-        subject: { type: Type.STRING, description: 'Oggetto (per lettere)' },
+        required: ['type', 'clientName'],
       },
-      required: ['type', 'clientName'],
     },
   },
   {
-    name: 'generate_invoice',
-    description:
-      'Genera una fattura professionale conforme alla normativa italiana con IVA e ritenuta. Usalo quando l\'utente chiede una fattura.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        clientName: { type: Type.STRING, description: 'Nome del cliente' },
-        description: { type: Type.STRING, description: 'Descrizione della prestazione' },
-        amount: { type: Type.STRING, description: 'Importo imponibile in euro (solo numero)' },
+    type: 'function',
+    function: {
+      name: 'generate_invoice',
+      description:
+        "Genera una fattura professionale conforme alla normativa italiana con IVA e ritenuta. Usalo quando l'utente chiede una fattura.",
+      parameters: {
+        type: 'object',
+        properties: {
+          clientName: { type: 'string', description: 'Nome del cliente' },
+          description: { type: 'string', description: 'Descrizione della prestazione' },
+          amount: { type: 'string', description: 'Importo imponibile in euro (solo numero)' },
+        },
+        required: ['clientName', 'amount'],
       },
-      required: ['clientName', 'amount'],
     },
   },
 ]
@@ -118,15 +125,8 @@ async function executeTool(
         profile
       )
       return {
-        resultForModel: {
-          results: res.results,
-          sources: res.sources,
-        },
-        action: {
-          tool: 'legal_research',
-          summary: `Ricerca: ${String(args.query ?? '')}`,
-          sources: res.sources,
-        },
+        resultForModel: { results: res.results, sources: res.sources },
+        action: { tool: 'legal_research', summary: `Ricerca: ${String(args.query ?? '')}`, sources: res.sources },
       }
     }
 
@@ -158,11 +158,7 @@ async function executeTool(
         document_type: doc.type,
       })
       return {
-        resultForModel: {
-          status: 'ok',
-          title: doc.title,
-          preview: doc.content.slice(0, 400),
-        },
+        resultForModel: { status: 'ok', title: doc.title, preview: doc.content.slice(0, 400) },
         action: { tool: 'generate_document', summary: doc.title, document: doc },
       }
     }
@@ -186,11 +182,7 @@ async function executeTool(
         profile
       )
       return {
-        resultForModel: {
-          status: 'ok',
-          title: doc.title,
-          preview: doc.content.slice(0, 400),
-        },
+        resultForModel: { status: 'ok', title: doc.title, preview: doc.content.slice(0, 400) },
         action: { tool: 'generate_invoice', summary: doc.title, document: doc },
       }
     }
@@ -204,7 +196,6 @@ async function executeTool(
 
 export async function POST(request: NextRequest) {
   try {
-    // Authentication
     const authHeader = request.headers.get('authorization')
     if (!authHeader) {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
@@ -215,7 +206,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Token non valido' }, { status: 401 })
     }
 
-    // Rate limiting (stessa finestra della chat)
     const rateLimit = await rateLimiter.check(
       `assistant:${user.id}`,
       RATE_LIMITS.chat.maxRequests,
@@ -228,13 +218,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Chat usage limit
     const chatLimit = await limitsEnforcer.checkChatLimit(user.id)
     if (!chatLimit.allowed) {
       return NextResponse.json({ error: chatLimit.error, remaining: 0 }, { status: 429 })
     }
 
-    // Input
     const body = await request.json()
     const message: string = String(body.message ?? '').trim()
     const history: Array<{ role: string; content: string }> = Array.isArray(body.history)
@@ -245,7 +233,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Messaggio non valido' }, { status: 400 })
     }
 
-    // Studio profile (default se assente)
     const { data: profileRow } = await supabase
       .from('studio_profiles')
       .select('studio_name, studio_type, practice_areas, location')
@@ -259,7 +246,7 @@ export async function POST(request: NextRequest) {
       location: profileRow?.location || 'Italia',
     }
 
-    const systemInstruction = `Sei l'Assistente AI di ${profile.studio_name}, uno ${profile.studio_type} con sede a ${profile.location} (aree: ${profile.practice_areas.join(', ')}).
+    const systemPrompt = `Sei l'Assistente AI di ${profile.studio_name}, uno ${profile.studio_type} con sede a ${profile.location} (aree: ${profile.practice_areas.join(', ')}).
 
 Hai a disposizione strumenti per: ricerca giuridica con fonti reali, generazione documenti (contratti, lettere, privacy GDPR) e fatture.
 
@@ -270,68 +257,48 @@ Regole:
 - Non inventare mai riferimenti normativi o sentenze.
 - Rispondi in italiano, professionale ma diretto. Dopo aver generato un documento, riassumilo in 2-3 righe: il testo completo viene mostrato a parte.`
 
-    // Loop manuale con patch delle thought signatures (Gemini 3.x le richiede
-    // su ogni functionCall replays; per le parti prive di firma Google documenta
-    // il bypass "context_engineering_is_the_way_to_go")
-    const SIGNATURE_BYPASS = 'context_engineering_is_the_way_to_go'
-
-    const contents: Content[] = [
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
       ...history.map((m) => ({
-        role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
-        parts: [{ text: String(m.content) }],
+        role: (m.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: String(m.content),
       })),
-      { role: 'user' as const, parts: [{ text: message }] },
+      { role: 'user', content: message },
     ]
 
     const actions: AssistantAction[] = []
     let finalText = ''
 
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-      const result = await ai.models.generateContent({
-        model: MODEL,
-        contents,
-        config: {
-          systemInstruction,
-          tools: [{ functionDeclarations: toolDeclarations }],
-        },
-      })
+      const { message: assistantMessage } = await freeChatWithTools(messages, tools)
 
-      const calls = result.functionCalls
+      const toolCalls = assistantMessage.tool_calls
 
-      if (!calls || calls.length === 0) {
-        finalText = result.text ?? ''
+      if (!toolCalls || toolCalls.length === 0) {
+        finalText = assistantMessage.content ?? ''
         break
       }
 
-      // Echo della risposta del modello, firmando ogni functionCall privo di signature
-      const modelContent = result.candidates?.[0]?.content
-      if (modelContent) {
-        const patchedParts: Part[] = (modelContent.parts ?? []).map((p) => {
-          if (p.functionCall && !p.thoughtSignature) {
-            return { ...p, thoughtSignature: SIGNATURE_BYPASS }
-          }
-          return p
-        })
-        contents.push({ role: 'model', parts: patchedParts })
-      }
+      messages.push(assistantMessage)
 
-      const responseParts: Part[] = []
-      for (const call of calls) {
-        const { resultForModel, action } = await executeTool(
-          call.name ?? '',
-          (call.args ?? {}) as Record<string, unknown>,
-          profile,
-          user.id
-        )
+      for (const call of toolCalls) {
+        if (call.type !== 'function') continue
+        let args: Record<string, unknown> = {}
+        try {
+          args = JSON.parse(call.function.arguments || '{}')
+        } catch {
+          args = {}
+        }
+
+        const { resultForModel, action } = await executeTool(call.function.name, args, profile, user.id)
         if (action) actions.push(action)
-        responseParts.push({
-          functionResponse: {
-            name: call.name ?? '',
-            response: resultForModel,
-          },
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify(resultForModel),
         })
       }
-      contents.push({ role: 'user', parts: responseParts })
     }
 
     if (!finalText) {
@@ -341,11 +308,7 @@ Regole:
           : 'Non sono riuscito a completare la richiesta. Riprova riformulando.'
     }
 
-    return NextResponse.json({
-      reply: finalText,
-      actions,
-      remaining: chatLimit.remaining,
-    })
+    return NextResponse.json({ reply: finalText, actions, remaining: chatLimit.remaining })
   } catch (error) {
     console.error('Assistant error:', error)
     const message = error instanceof Error ? error.message : String(error)
@@ -355,6 +318,6 @@ Regole:
         { status: 429 }
       )
     }
-    return NextResponse.json({ error: 'Errore dell\'assistente. Riprova.' }, { status: 500 })
+    return NextResponse.json({ error: "Errore dell'assistente. Riprova." }, { status: 500 })
   }
 }

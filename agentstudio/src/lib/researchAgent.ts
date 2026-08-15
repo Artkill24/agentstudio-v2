@@ -1,6 +1,4 @@
-import { GoogleGenAI } from '@google/genai'
-
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
+import { freeGenerate } from './free-llm-client'
 
 interface ResearchQuery {
   query: string
@@ -20,117 +18,110 @@ export interface ResearchSource {
   url: string
 }
 
+interface TavilyResult {
+  title: string
+  url: string
+  content: string
+}
+
+interface TavilyResponse {
+  results: TavilyResult[]
+  answer?: string
+}
+
+async function tavilySearch(query: string): Promise<TavilyResponse> {
+  const apiKey = process.env.TAVILY_API_KEY
+  if (!apiKey) {
+    throw new Error('TAVILY_API_KEY non configurata')
+  }
+
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: 'advanced',
+      max_results: 6,
+      include_answer: false,
+      country: 'italy',
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Tavily error: ${response.status} ${await response.text()}`)
+  }
+
+  return response.json()
+}
+
 export class ResearchAgent {
   async research(query: ResearchQuery, profile: StudioProfile) {
-    const prompt = this.buildResearchPrompt(query, profile)
+    // 1. Ricerca web reale con Tavily — fonti verificabili, non inventate
+    const searchResults = await tavilySearch(
+      `${query.query} normativa italiana ${query.jurisdiction ?? ''}`.trim()
+    )
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-flash-latest',
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
-    })
+    if (!searchResults.results || searchResults.results.length === 0) {
+      return {
+        query: query.query,
+        category: query.category,
+        results: 'Nessuna fonte trovata per questa ricerca. Prova a riformulare la domanda.',
+        sources: [] as ResearchSource[],
+        timestamp: new Date().toISOString(),
+        studio: profile.studio_name,
+      }
+    }
 
-    const content = result.text ?? ''
+    const sources: ResearchSource[] = searchResults.results.map((r) => ({
+      title: r.title,
+      url: r.url,
+    }))
 
-    const sources: ResearchSource[] =
-      result.candidates?.[0]?.groundingMetadata?.groundingChunks
-        ?.map((chunk) => ({
-          title: chunk.web?.title,
-          url: chunk.web?.uri ?? '',
-        }))
-        .filter((s) => s.url !== '') ?? []
+    // 2. Sintesi in italiano via Groq, usando SOLO il contenuto trovato da Tavily
+    const sourcesText = searchResults.results
+      .map((r, i) => `Fonte ${i + 1} — ${r.title} (${r.url}):\n${r.content}`)
+      .join('\n\n')
+
+    const synthesisPrompt = this.buildSynthesisPrompt(query, profile, sourcesText)
+    const synthesis = await freeGenerate(synthesisPrompt, { temperature: 0.2, maxTokens: 1500 })
 
     return {
       query: query.query,
       category: query.category,
-      results: content,
+      results: synthesis.text,
       sources,
       timestamp: new Date().toISOString(),
       studio: profile.studio_name,
     }
   }
 
-  private buildResearchPrompt(query: ResearchQuery, profile: StudioProfile): string {
-    const baseContext = `Sei un assistente specializzato nella ricerca giuridica per ${profile.studio_name}, 
-uno ${profile.studio_type} con sede a ${profile.location}.
-Aree di competenza: ${profile.practice_areas.join(', ')}.
-
-Ricerca richiesta: "${query.query}"
-Categoria: ${query.category}
-${query.jurisdiction ? `Giurisdizione: ${query.jurisdiction}` : 'Giurisdizione: Italia'}
-
-ISTRUZIONI:
-1. Usa la ricerca web per trovare informazioni aggiornate e verificate per il contesto italiano
-2. Cita SOLO fonti reali trovate tramite la ricerca (codici, leggi, sentenze) — non inventare mai riferimenti
-3. Organizza la risposta in sezioni chiare
-4. Includi riferimenti normativi rilevanti con estremi verificabili
-5. Evidenzia aspetti pratici per l'applicazione professionale
-6. Se non trovi fonti affidabili su un punto, dichiaralo esplicitamente invece di improvvisare`
-
-    switch (query.category) {
-      case 'jurisprudence':
-        return `${baseContext}
-
-Concentrati su:
-- Giurisprudenza consolidata
-- Sentenze recenti rilevanti
-- Orientamenti giurisprudenziali
-- Principi di diritto consolidati
-- Massime e precedenti vincolanti
-
-Struttura la risposta con:
-- Principio generale
-- Giurisprudenza consolidata
-- Orientamenti recenti
-- Implicazioni pratiche
-- Riferimenti normativi`
-
-      case 'regulations':
-        return `${baseContext}
-
-Concentrati su:
-- Normativa nazionale e comunitaria applicabile
-- Decreti attuativi e circolari
-- Regolamenti settoriali
-- Modifiche legislative recenti
-- Adempimenti e scadenze
-
-Struttura la risposta con:
-- Quadro normativo di riferimento
-- Disposizioni specifiche applicabili
-- Obblighi e adempimenti
-- Sanzioni previste
-- Aspetti procedurali`
-
-      case 'precedents':
-        return `${baseContext}
-
-Concentrati su:
-- Precedenti giurisprudenziali similari
-- Casistica pratica
-- Strategie processuali utilizzate
-- Esiti delle controversie
-- Criteri interpretativi applicati
-
-Struttura la risposta con:
-- Casi similari identificati
-- Strategie processuali efficaci
-- Elementi distintivi del caso
-- Possibili sviluppi
-- Raccomandazioni operative`
-
-      default:
-        return `${baseContext}
-
-Fornisci una ricerca completa che includa:
-- Aspetti normativi
-- Giurisprudenza rilevante
-- Precedenti applicabili
-- Considerazioni pratiche
-- Bibliografia e fonti di approfondimento`
+  private buildSynthesisPrompt(
+    query: ResearchQuery,
+    profile: StudioProfile,
+    sourcesText: string
+  ): string {
+    const categoryLabel: Record<ResearchQuery['category'], string> = {
+      jurisprudence: 'giurisprudenza e sentenze',
+      regulations: 'normativa e adempimenti',
+      precedents: 'precedenti e casistica pratica',
+      general: 'panoramica generale',
     }
+
+    return `Sei un assistente di ricerca giuridica per ${profile.studio_name}, uno ${profile.studio_type} con sede a ${profile.location}.
+
+Domanda: "${query.query}"
+Focus richiesto: ${categoryLabel[query.category]}
+
+Di seguito il contenuto REALE trovato tramite ricerca web. Usa SOLO queste informazioni per rispondere.
+Non aggiungere riferimenti normativi, sentenze o dati che non compaiono nelle fonti sottostanti.
+Se le fonti non coprono un aspetto della domanda, dillo esplicitamente invece di inventare.
+
+${sourcesText}
+
+Scrivi una sintesi in italiano, professionale e organizzata in sezioni brevi, che risponda alla domanda basandoti esclusivamente su queste fonti. Non citare i numeri delle fonti nel testo (es. "Fonte 1"), scrivi in prosa naturale.`
   }
 
   async getResearchSuggestions(profile: StudioProfile): Promise<string[]> {
