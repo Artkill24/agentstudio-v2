@@ -1,6 +1,4 @@
-import { GoogleGenAI } from '@google/genai'
-
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! })
+import { freeGenerate } from './free-llm-client'
 
 interface StudioProfile {
   studio_name: string
@@ -22,16 +20,11 @@ export class DocumentAgent {
   async generateDocument(request: DocumentRequest, profile: StudioProfile) {
     const prompt = this.buildPrompt(request, profile)
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    })
-
-    const content = result.text ?? ''
+    const result = await freeGenerate(prompt, { temperature: 0.3, maxTokens: 4000 })
 
     return {
       title: this.generateTitle(request),
-      content: content,
+      content: result.text,
       type: request.type,
     }
   }
