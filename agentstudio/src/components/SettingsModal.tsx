@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Settings, FileText, Search, Clock, TrendingUp, Users, Plus } from 'lucide-react'
+import { X, Settings, FileText, Search, Clock, TrendingUp, Users, Plus, Building2 } from 'lucide-react'
 import SubscriptionCard from './SubscriptionCard'
 import { supabase } from '@/lib/supabase'
 
@@ -11,6 +11,22 @@ interface ClientItem {
   email: string | null
   phone: string | null
   notes: string | null
+}
+
+const STUDIO_TYPES = ['Studio Legale', 'Studio Commercialista', 'Studio Notarile']
+const TEAM_SIZES = ['1 (solo)', '2-5', '6-15', '16+']
+const PRACTICE_AREAS = [
+  'Diritto Civile', 'Diritto Penale', 'Diritto Commerciale', 'Diritto del Lavoro',
+  'Fiscale e Tributario', 'Immobiliare', 'Famiglia e Successioni', 'Progettazione', 'Consulenza Strategica',
+]
+
+interface StudioProfileData {
+  studio_name: string
+  studio_type: string
+  location: string
+  team_size?: string
+  practice_areas: string[]
+  challenge?: string
 }
 
 interface SettingsModalProps {
@@ -27,6 +43,9 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
   const [newPhone, setNewPhone] = useState('')
   const [newNotes, setNewNotes] = useState('')
   const [savingClient, setSavingClient] = useState(false)
+  const [profileData, setProfileData] = useState<StudioProfileData | null>(null)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
@@ -42,9 +61,62 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
     }
   }
 
+  const loadProfile = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/studio-profile', {
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setProfileData({
+        studio_name: data.profile.studio_name || '',
+        studio_type: data.profile.studio_type || '',
+        location: data.profile.location || '',
+        team_size: data.profile.team_size || '',
+        practice_areas: data.profile.practice_areas || [],
+        challenge: data.profile.challenge || '',
+      })
+    }
+  }
+
   useEffect(() => {
     loadClients()
+    loadProfile()
   }, [])
+
+  const toggleArea = (area: string) => {
+    if (!profileData) return
+    const has = profileData.practice_areas.includes(area)
+    setProfileData({
+      ...profileData,
+      practice_areas: has
+        ? profileData.practice_areas.filter((a) => a !== area)
+        : [...profileData.practice_areas, area],
+    })
+  }
+
+  const saveProfile = async () => {
+    if (!profileData || savingProfile) return
+    setSavingProfile(true)
+    setProfileSaved(false)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/studio-profile', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(profileData),
+      })
+      if (res.ok) {
+        setProfileSaved(true)
+        setTimeout(() => setProfileSaved(false), 2500)
+      }
+    } finally {
+      setSavingProfile(false)
+    }
+  }
 
   const saveNotes = async (client: ClientItem) => {
     setSavingNotes(true)
@@ -133,6 +205,102 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
                 <p className="text-xs text-gray-500">Sessioni</p>
               </div>
             </div>
+          </div>
+
+          {/* Profilo Studio */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-1.5">
+              <Building2 className="h-4 w-4" />
+              Profilo Studio
+            </h3>
+
+            {!profileData ? (
+              <p className="text-xs text-gray-500">Caricamento...</p>
+            ) : (
+              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Nome Studio</label>
+                  <input
+                    value={profileData.studio_name}
+                    onChange={(e) => setProfileData({ ...profileData, studio_name: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Tipo di Studio</label>
+                  <select
+                    value={profileData.studio_type}
+                    onChange={(e) => setProfileData({ ...profileData, studio_type: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="">Seleziona tipo</option>
+                    {STUDIO_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Ubicazione</label>
+                  <input
+                    value={profileData.location}
+                    onChange={(e) => setProfileData({ ...profileData, location: e.target.value })}
+                    placeholder="Milano, Italia"
+                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Dimensione Team</label>
+                  <select
+                    value={profileData.team_size || ''}
+                    onChange={(e) => setProfileData({ ...profileData, team_size: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="">Seleziona dimensione</option>
+                    {TEAM_SIZES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 mb-2 block">Aree di Specializzazione</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {PRACTICE_AREAS.map((area) => (
+                      <label key={area} className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={profileData.practice_areas.includes(area)}
+                          onChange={() => toggleArea(area)}
+                          className="rounded border-gray-600 bg-gray-900 text-purple-500 focus:ring-purple-500"
+                        />
+                        {area}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Principale Sfida Attuale (opzionale)</label>
+                  <input
+                    value={profileData.challenge || ''}
+                    onChange={(e) => setProfileData({ ...profileData, challenge: e.target.value })}
+                    placeholder="Es. Troppo tempo per documenti amministrativi"
+                    className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <button
+                  onClick={saveProfile}
+                  disabled={savingProfile}
+                  className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-sm rounded py-2 transition-colors"
+                >
+                  {savingProfile ? 'Salvataggio...' : profileSaved ? 'Salvato ✓' : 'Salva profilo'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Rubrica clienti */}
