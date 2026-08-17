@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Settings, FileText, Search, Clock, TrendingUp, Users, Plus, Building2 } from 'lucide-react'
+import { X, Settings, FileText, Search, Clock, TrendingUp, Users, Plus, Building2, AlertTriangle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import SubscriptionCard from './SubscriptionCard'
 import { supabase } from '@/lib/supabase'
 
@@ -46,6 +47,11 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
   const [profileData, setProfileData] = useState<StudioProfileData | null>(null)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const router = useRouter()
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
@@ -82,7 +88,36 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
   useEffect(() => {
     loadClients()
     loadProfile()
+    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email || ''))
   }, [])
+
+  const deleteAccount = async () => {
+    if (deletingAccount || deleteConfirmText.toLowerCase() !== userEmail.toLowerCase()) return
+    setDeletingAccount(true)
+    setDeleteError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirmation: deleteConfirmText }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        await supabase.auth.signOut()
+        router.push('/')
+      } else {
+        setDeleteError(data.error || 'Eliminazione non riuscita. Riprova.')
+      }
+    } catch {
+      setDeleteError('Errore di connessione. Riprova.')
+    } finally {
+      setDeletingAccount(false)
+    }
+  }
 
   const toggleArea = (area: string) => {
     if (!profileData) return
@@ -427,6 +462,38 @@ export default function SettingsModal({ onClose, subscriptionData, dashboardData
               />
             </div>
           )}
+
+          {/* Zona pericolosa */}
+          <div className="border-t border-red-900/40 pt-6">
+            <h3 className="text-sm font-medium text-red-400 mb-3 flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4" />
+              Zona pericolosa
+            </h3>
+            <div className="bg-red-950/20 border border-red-900/40 rounded-lg p-4 space-y-3">
+              <p className="text-xs text-gray-400">
+                Elimina definitivamente il tuo account e tutti i dati associati: clienti, scadenze,
+                documenti, template, conversazioni, ore registrate. Questa azione è irreversibile
+                e non può essere annullata.
+              </p>
+              <p className="text-xs text-gray-500">
+                Digita la tua email (<span className="text-gray-400">{userEmail}</span>) per confermare:
+              </p>
+              <input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={userEmail}
+                className="w-full bg-gray-900 border border-red-900/60 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-red-500"
+              />
+              {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}
+              <button
+                onClick={deleteAccount}
+                disabled={deletingAccount || deleteConfirmText.toLowerCase() !== userEmail.toLowerCase()}
+                className="w-full bg-red-900/60 hover:bg-red-800 disabled:opacity-30 disabled:cursor-not-allowed text-red-100 text-sm rounded py-2 transition-colors"
+              >
+                {deletingAccount ? 'Eliminazione in corso...' : 'Elimina account e tutti i dati'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
